@@ -1,0 +1,33 @@
+# Error Taxonomy
+
+## AUTHENTICATION
+
+- API_KEY_MISSING
+- API_KEY_INVALID
+
+## VALIDATION
+
+- INVALID_IMAGE_FORMAT
+- SCHEMA_VALIDATION_FAILED
+
+## BUSINESS LOGIC
+
+- SINGLE_PAGE_PROVISIONAL_ONLY
+- GUIDE_REJECTED_CONTRADICTION
+- GUIDE_REJECTED_NO_STABLE_RULES
+
+## SYSTEM
+
+- MODEL_TIMEOUT
+- MODEL_INVALID_OUTPUT
+- STORAGE_FAILURE
+
+## Error Response Format
+
+```json
+{
+  "error_code": "GUIDE_REJECTED_CONTRADICTION",
+  "message": "Visual conventions contradict across pages",
+  "recoverable": false
+}
+```
