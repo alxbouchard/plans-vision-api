@@ -28,6 +28,8 @@ Do NOT implement anything.
 Do NOT suggest new features.
 Wait for explicit confirmation before taking any action.
 
+If your work changes the project state, you must update docs/PROJECT_STATUS.md before committing.
+
 ---
 
 ## Expected Correct Summary (example)
