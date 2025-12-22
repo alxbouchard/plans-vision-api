@@ -41,6 +41,25 @@ Client
 | GET | `/projects/{id}/guide` | Get visual guide |
 | GET | `/health` | Health check |
 
+### Status Response (with Usage Tracking)
+
+```json
+{
+  "project_id": "...",
+  "status": "processing",
+  "current_step": "validation",
+  "pages_processed": 2,
+  "total_pages": 5,
+  "usage": {
+    "input_tokens": 15420,
+    "output_tokens": 3200,
+    "total_tokens": 18620,
+    "cost_usd": 0.0523,
+    "requests": 4
+  }
+}
+```
+
 ## Installation
 
 ```bash
@@ -84,7 +103,18 @@ python -m src.main
 
 # API available at http://localhost:8000
 # OpenAPI docs at http://localhost:8000/docs
+# Test UI at file:///.../test-ui.html (open in browser)
 ```
+
+## Test UI
+
+A visual test interface is included in `test-ui.html`. Open it in a browser to:
+
+- Create projects and upload PNG pages
+- Start analysis and monitor progress in real-time
+- View 4-step pipeline progress bar
+- Track API usage and costs during processing
+- View generated guides (provisional and stable)
 
 ## Usage Example
 
@@ -139,6 +169,12 @@ pytest -v
 plans-vision-api/
 ├── src/
 │   ├── agents/           # GPT-5.2 vision agents
+│   │   ├── prompts/      # Agent prompt templates (.txt)
+│   │   ├── client.py     # Vision client with usage tracking
+│   │   ├── guide_builder.py
+│   │   ├── guide_applier.py
+│   │   ├── self_validator.py
+│   │   └── guide_consolidator.py
 │   ├── api/              # FastAPI application
 │   ├── models/           # Pydantic models
 │   ├── pipeline/         # Multi-agent orchestrator
@@ -147,6 +183,7 @@ plans-vision-api/
 │   ├── logging.py        # Structured logging
 │   └── main.py           # Entry point
 ├── tests/                # Test suite
+├── test-ui.html          # Visual test interface
 ├── pyproject.toml        # Project configuration
 └── .env.example          # Environment template
 ```
@@ -191,6 +228,24 @@ A single contradiction immediately marks a rule as **UNSTABLE**:
 - Rejection reason explicitly explains which rules failed and why
 
 Only **stable** rules appear in the final guide.
+
+## Usage Tracking
+
+Real-time token usage and cost tracking during pipeline execution:
+
+- **Input/Output tokens**: Tracked per API request
+- **Cost estimation**: Based on GPT-5.2 pricing (configurable in `client.py`)
+- **Request count**: Total API calls made
+- **Live updates**: Visible in status endpoint and test UI during processing
+
+Pricing constants (per 1M tokens) can be adjusted in `src/agents/client.py`:
+
+```python
+PRICING = {
+    "gpt-5.2-pro": {"input": 2.50, "output": 10.00},
+    "gpt-5.2": {"input": 1.25, "output": 5.00},
+}
+```
 
 ## Structured Outputs
 
