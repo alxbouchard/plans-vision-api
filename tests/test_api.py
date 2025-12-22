@@ -24,9 +24,11 @@ class TestProjects:
 
     @pytest.mark.asyncio
     async def test_create_project_missing_owner_id(self, client: AsyncClient):
-        """Test creating project without owner ID fails."""
+        """Test creating project without owner ID or API key fails with 401."""
         response = await client.post("/projects")
-        assert response.status_code == 422
+        assert response.status_code == 401
+        data = response.json()
+        assert data["error_code"] == "API_KEY_MISSING"
 
     @pytest.mark.asyncio
     async def test_get_project(self, client: AsyncClient, headers: dict):

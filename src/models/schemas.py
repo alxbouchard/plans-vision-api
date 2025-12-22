@@ -290,6 +290,32 @@ class UsageStatsSchema(BaseModel):
     requests: int = Field(default=0, description="Number of API requests made")
 
 
+class PipelineErrorSchema(BaseModel):
+    """
+    Structured error information when pipeline fails.
+
+    Example:
+        {
+            "error_code": "MODEL_INVALID_OUTPUT",
+            "message": "Guide Applier returned invalid JSON",
+            "step": "guide_applier",
+            "page": 2
+        }
+    """
+    error_code: str = Field(
+        description="Error code from docs/ERRORS.md taxonomy"
+    )
+    message: str = Field(description="Human-readable error message")
+    step: Optional[str] = Field(
+        default=None,
+        description="Pipeline step where error occurred"
+    )
+    page: Optional[int] = Field(
+        default=None,
+        description="Page number where error occurred (if applicable)"
+    )
+
+
 class PipelineStatusResponse(BaseResponse):
     """
     Status of the analysis pipeline.
@@ -301,18 +327,23 @@ class PipelineStatusResponse(BaseResponse):
             "current_step": "validation",
             "pages_processed": 2,
             "total_pages": 5,
-            "error_message": null,
+            "error": null,
             "usage": {"input_tokens": 10000, "cost_usd": 0.035}
         }
 
-    Example (failed with rejection):
+    Example (failed with structured error):
         {
             "project_id": "...",
             "status": "failed",
-            "current_step": null,
-            "pages_processed": 5,
+            "current_step": "validation",
+            "pages_processed": 2,
             "total_pages": 5,
-            "error_message": "Insufficient stable rules: 1/5 (20%) below 60% threshold"
+            "error": {
+                "error_code": "MODEL_INVALID_OUTPUT",
+                "message": "Guide Applier returned invalid JSON",
+                "step": "guide_applier",
+                "page": 2
+            }
         }
     """
     project_id: UUID = Field(description="Project identifier")
@@ -331,9 +362,13 @@ class PipelineStatusResponse(BaseResponse):
         default=0,
         description="Total pages in project"
     )
+    error: Optional[PipelineErrorSchema] = Field(
+        default=None,
+        description="Structured error info if status is 'failed'"
+    )
     error_message: Optional[str] = Field(
         default=None,
-        description="Error or rejection message if failed"
+        description="Legacy error message field (deprecated, use 'error' instead)"
     )
     usage: Optional[UsageStatsSchema] = Field(
         default=None,

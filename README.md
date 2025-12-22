@@ -13,6 +13,14 @@ This API **learns how a project is drawn** rather than recognizing objects. It a
 3. **Rules must be observed** - Conventions require visual evidence
 4. **Unstable rules are rejected** - Only validated patterns in final guide
 
+### SaaS Features (v1.1)
+
+- **Multi-tenant isolation** - API key authentication, tenant-scoped storage
+- **Rate limiting** - 60 req/min per tenant with `X-RateLimit-*` headers
+- **Idempotency** - Safe retries via `Idempotency-Key` header
+- **Observability** - Request tracing with `X-Request-ID`, structured logging
+- **Schema versioning** - All responses include `schema_version: "1.0"`
+
 ## Architecture
 
 ```
@@ -116,51 +124,65 @@ A visual test interface is included in `test-ui.html`. Open it in a browser to:
 - Track API usage and costs during processing
 - View generated guides (provisional and stable)
 
+## Authentication
+
+### API Key (Recommended)
+
+```bash
+curl -H "X-API-Key: pv_..." https://api.example.com/projects
+```
+
+### Legacy X-Owner-Id
+
+```bash
+curl -H "X-Owner-Id: <uuid>" https://api.example.com/projects
+```
+
 ## Usage Example
 
 ```bash
-# Set owner ID for tenant isolation
-OWNER_ID="your-uuid-here"
+# Using API key authentication
+API_KEY="pv_your-api-key"
 
 # 1. Create a project
 curl -X POST http://localhost:8000/projects \
-  -H "X-Owner-Id: $OWNER_ID"
+  -H "X-API-Key: $API_KEY"
 
 # 2. Upload pages (PNG only)
 curl -X POST http://localhost:8000/projects/{project_id}/pages \
-  -H "X-Owner-Id: $OWNER_ID" \
+  -H "X-API-Key: $API_KEY" \
   -F "file=@page1.png"
 
 curl -X POST http://localhost:8000/projects/{project_id}/pages \
-  -H "X-Owner-Id: $OWNER_ID" \
+  -H "X-API-Key: $API_KEY" \
   -F "file=@page2.png"
 
 # 3. Start analysis (1+ pages)
 # Single page: provisional guide only
 # Multiple pages: full validation pipeline
 curl -X POST http://localhost:8000/projects/{project_id}/analyze \
-  -H "X-Owner-Id: $OWNER_ID"
+  -H "X-API-Key: $API_KEY"
 
 # 4. Check status
 curl http://localhost:8000/projects/{project_id}/status \
-  -H "X-Owner-Id: $OWNER_ID"
+  -H "X-API-Key: $API_KEY"
 
 # 5. Get the visual guide
 curl http://localhost:8000/projects/{project_id}/guide \
-  -H "X-Owner-Id: $OWNER_ID"
+  -H "X-API-Key: $API_KEY"
 ```
 
 ## Testing
 
 ```bash
 # Run all tests
-pytest
+make test
 
 # With coverage
-pytest --cov=src
+make coverage
 
-# Verbose output
-pytest -v
+# Generate test fixtures
+make fixtures
 ```
 
 ## Project Structure
@@ -175,14 +197,27 @@ plans-vision-api/
 │   │   ├── guide_applier.py
 │   │   ├── self_validator.py
 │   │   └── guide_consolidator.py
-│   ├── api/              # FastAPI application
-│   ├── models/           # Pydantic models
+│   ├── api/
+│   │   ├── middleware/   # Auth, rate limiting, idempotency
+│   │   ├── routes/       # API endpoints
+│   │   └── app.py        # FastAPI application
+│   ├── models/           # Pydantic models & schemas
 │   ├── pipeline/         # Multi-agent orchestrator
 │   ├── storage/          # Database & file storage
 │   ├── config.py         # Configuration
 │   ├── logging.py        # Structured logging
 │   └── main.py           # Entry point
-├── tests/                # Test suite
+├── tests/                # Test suite (66 tests)
+├── testdata/             # Test fixtures
+│   ├── consistent_set/   # 3 pages with consistent conventions
+│   ├── contradiction_set/ # 2 pages with contradictions
+│   └── synthetic/        # Minimal test images
+├── docs/                 # Documentation
+│   ├── CHANGELOG.md
+│   ├── ERRORS.md         # Error code taxonomy
+│   ├── RUNBOOK.md        # Operations guide
+│   └── SECURITY.md
+├── Makefile              # Common commands
 ├── test-ui.html          # Visual test interface
 ├── pyproject.toml        # Project configuration
 └── .env.example          # Environment template

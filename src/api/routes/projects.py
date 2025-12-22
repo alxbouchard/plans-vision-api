@@ -2,10 +2,11 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.dependencies import get_db_session, get_owner_id
+from src.api.middleware import check_project_quota, increment_usage
 from src.logging import analytics
 from src.models.entities import ProjectStatus
 from src.models.schemas import ProjectCreate, ProjectResponse, ErrorResponse
@@ -20,9 +21,11 @@ router = APIRouter(prefix="/projects", tags=["projects"])
     status_code=status.HTTP_201_CREATED,
     responses={
         400: {"model": ErrorResponse, "description": "Invalid request"},
+        403: {"model": ErrorResponse, "description": "Quota exceeded"},
     },
 )
 async def create_project(
+    request: Request,
     owner_id: UUID = Depends(get_owner_id),
     session: AsyncSession = Depends(get_db_session),
 ) -> ProjectResponse:
@@ -31,8 +34,14 @@ async def create_project(
 
     A project starts in 'draft' status and can accept page uploads.
     """
+    # Check project quota before creating
+    check_project_quota(request)
+
     repo = ProjectRepository(session)
     project = await repo.create(owner_id)
+
+    # Increment usage counter
+    increment_usage(request, projects_delta=1)
 
     analytics.project_created(str(project.id), str(owner_id))
 

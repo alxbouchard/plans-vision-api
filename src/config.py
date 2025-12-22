@@ -54,6 +54,34 @@ class Settings(BaseSettings):
         description="Minimum ratio of stable rules to generate final guide"
     )
 
+    # Multi-tenant / Rate limiting
+    rate_limit_requests_per_minute: int = Field(
+        default=60,
+        description="Maximum API requests per minute per tenant"
+    )
+    max_projects_per_tenant: int = Field(
+        default=100,
+        description="Maximum number of projects per tenant"
+    )
+    max_pages_per_project: int = Field(
+        default=50,
+        description="Maximum number of pages per project"
+    )
+    max_pages_per_month: int = Field(
+        default=1000,
+        description="Maximum pages processed per tenant per month"
+    )
+
+    # Upload limits
+    max_upload_size_bytes: int = Field(
+        default=10 * 1024 * 1024,  # 10 MB
+        description="Maximum upload file size in bytes"
+    )
+    max_image_dimension: int = Field(
+        default=10000,
+        description="Maximum image width/height in pixels"
+    )
+
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8",

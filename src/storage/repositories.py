@@ -208,6 +208,15 @@ class PageRepository:
             created_at=db_page.created_at,
         )
 
+    async def count_by_project(self, project_id: UUID) -> int:
+        """Count pages in a project."""
+        result = await self.session.execute(
+            select(func.count(PageTable.id)).where(
+                PageTable.project_id == str(project_id)
+            )
+        )
+        return result.scalar() or 0
+
 
 class VisualGuideRepository:
     """Repository for VisualGuide entities."""

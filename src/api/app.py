@@ -12,6 +12,13 @@ from src.config import get_settings
 from src.logging import configure_logging, get_logger
 from src.storage import init_database
 from src.api.routes import projects_router, pages_router, analysis_router
+from src.api.middleware import (
+    APIKeyAuthMiddleware,
+    RateLimitMiddleware,
+    IdempotencyMiddleware,
+    RequestContextMiddleware,
+)
+from src.models.schemas import SCHEMA_VERSION
 
 logger = get_logger(__name__)
 
@@ -47,7 +54,8 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # CORS middleware - allow all origins for local testing
+    # Middleware stack (order matters - first added = last executed)
+    # 1. CORS - allow all origins for local testing
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -55,6 +63,18 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # 2. Idempotency - caches responses for retry safety (needs tenant_id)
+    app.add_middleware(IdempotencyMiddleware)
+
+    # 3. Request context - adds request_id and timing (needs tenant_id from auth)
+    app.add_middleware(RequestContextMiddleware)
+
+    # 4. Rate limiting - must run after auth (so it has tenant_id)
+    app.add_middleware(RateLimitMiddleware)
+
+    # 5. Authentication - extracts tenant_id from API key or X-Owner-Id
+    app.add_middleware(APIKeyAuthMiddleware)
 
     # Include routers
     app.include_router(projects_router)
@@ -71,6 +91,7 @@ def create_app() -> FastAPI:
         return JSONResponse(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             content={
+                "schema_version": SCHEMA_VERSION,
                 "error_code": "VALIDATION_ERROR",
                 "message": "Invalid request data",
                 "details": {"errors": exc.errors()},
@@ -91,6 +112,7 @@ def create_app() -> FastAPI:
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={
+                "schema_version": SCHEMA_VERSION,
                 "error_code": "INTERNAL_ERROR",
                 "message": "An unexpected error occurred",
             },

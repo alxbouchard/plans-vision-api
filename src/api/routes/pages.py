@@ -2,10 +2,11 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.dependencies import get_db_session, get_file_storage, get_owner_id
+from src.api.middleware import check_page_quota, increment_usage
 from src.logging import analytics
 from src.models.entities import ProjectStatus
 from src.models.schemas import PageResponse, ErrorResponse
@@ -20,12 +21,14 @@ router = APIRouter(prefix="/projects/{project_id}/pages", tags=["pages"])
     response_model=PageResponse,
     status_code=status.HTTP_201_CREATED,
     responses={
+        403: {"model": ErrorResponse, "description": "Quota exceeded"},
         404: {"model": ErrorResponse, "description": "Project not found"},
         409: {"model": ErrorResponse, "description": "Project already validated"},
         415: {"model": ErrorResponse, "description": "Invalid file type"},
     },
 )
 async def upload_page(
+    request: Request,
     project_id: UUID,
     file: UploadFile = File(..., description="PNG image file"),
     owner_id: UUID = Depends(get_owner_id),
@@ -63,6 +66,11 @@ async def upload_page(
             detail="Cannot add pages while project is processing",
         )
 
+    # Check page quota
+    page_repo = PageRepository(session)
+    current_page_count = await page_repo.count_by_project(project_id)
+    check_page_quota(request, current_page_count)
+
     # Validate content type
     content_type = file.content_type or ""
     if content_type != "image/png":
@@ -86,8 +94,10 @@ async def upload_page(
         )
 
     # Create page record
-    page_repo = PageRepository(session)
     page = await page_repo.create(project_id, file_path)
+
+    # Increment usage counter
+    increment_usage(request, pages_delta=1)
 
     analytics.page_uploaded(str(project_id), str(page.id), page.order)
 

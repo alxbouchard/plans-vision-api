@@ -86,3 +86,30 @@ class VisualGuide(BaseModel):
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
     model_config = {"from_attributes": True}
+
+
+# =============================================================================
+# Multi-tenant entities (Phase 1.5)
+# =============================================================================
+
+class Tenant(BaseModel):
+    """A tenant (API user/organization) with usage tracking."""
+    id: UUID = Field(default_factory=uuid4)
+    name: str = Field(description="Tenant display name")
+    api_key_hash: str = Field(description="Hashed API key")
+    is_active: bool = Field(default=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+    # Usage tracking
+    projects_count: int = Field(default=0)
+    pages_this_month: int = Field(default=0)
+    usage_reset_at: datetime = Field(default_factory=datetime.utcnow)
+
+    model_config = {"from_attributes": True}
+
+
+class RateLimitEntry(BaseModel):
+    """Rate limiting entry for tracking request counts."""
+    tenant_id: UUID
+    window_start: datetime
+    request_count: int = Field(default=0)
