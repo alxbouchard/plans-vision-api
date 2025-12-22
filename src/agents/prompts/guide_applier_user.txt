@@ -1,16 +1,38 @@
-Test this provisional visual guide against the current page.
+Test this provisional visual guide against page {page_number}.
 
 PROVISIONAL GUIDE:
 {provisional_guide}
 
-For each rule in the guide, report:
-1. CONFIRMED - The rule holds true on this page (cite evidence)
-2. CONTRADICTED - The rule is violated on this page (explain how)
-3. NOT TESTABLE - The relevant elements don't appear on this page
-4. VARIATION OBSERVED - Similar but not identical pattern
+You MUST respond with a valid JSON object following this exact structure:
 
-Also report:
-- Any NEW conventions observed that are not in the guide
-- Overall consistency assessment
+```json
+{
+  "page_number": 2,
+  "rule_validations": [
+    {
+      "rule_id": "RULE_001",
+      "status": "confirmed | contradicted | not_testable | variation",
+      "evidence": "Specific evidence from this page",
+      "details": "Optional additional details"
+    }
+  ],
+  "new_observations": [
+    {
+      "description": "New pattern not in the guide",
+      "location": "Where on the page",
+      "suggested_rule": "Optional suggested rule"
+    }
+  ],
+  "overall_consistency": "consistent | mostly_consistent | inconsistent"
+}
+```
 
-Format your response as a structured validation report with clear citations.
+CRITICAL RULES:
+1. Every rule in the guide MUST have a validation entry
+2. Status MUST be exactly one of: confirmed, contradicted, not_testable, variation
+3. "contradicted" means the rule is VIOLATED - not just absent
+4. "not_testable" means the relevant elements don't appear on this page
+5. "variation" means similar but not identical pattern observed
+6. Evidence must cite specific locations on the page
+
+Respond ONLY with the JSON object, no other text.

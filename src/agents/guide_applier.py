@@ -1,5 +1,8 @@
 """Guide Applier Agent - Tests provisional guide against subsequent pages."""
 
+from __future__ import annotations
+
+import json
 from dataclasses import dataclass
 from typing import Optional
 
@@ -7,6 +10,7 @@ from src.config import get_settings
 from src.logging import get_logger
 from .client import VisionClient
 from .prompts import get_guide_applier_system, get_guide_applier_prompt
+from .schemas import GuideApplierOutput, RuleValidationStatus
 
 logger = get_logger(__name__)
 
@@ -16,7 +20,9 @@ class ValidationResult:
     """Result from validating a single page."""
     page_order: int
     validation_report: str
-    success: bool
+    structured_output: Optional[GuideApplierOutput] = None
+    has_contradictions: bool = False
+    success: bool = True
     error: Optional[str] = None
 
 
@@ -25,6 +31,7 @@ class GuideApplierResult:
     """Aggregated result from the Guide Applier agent."""
     page_validations: list[ValidationResult]
     all_success: bool
+    any_contradictions: bool = False
 
 
 class GuideApplierAgent:
@@ -67,17 +74,29 @@ class GuideApplierAgent:
 
         try:
             prompt = get_guide_applier_prompt().format(
-                provisional_guide=provisional_guide
+                provisional_guide=provisional_guide,
+                page_number=page_order,
             )
 
             response = await self.client.analyze_image(
                 image_bytes=image_bytes,
                 prompt=prompt,
                 model=self.settings.model_guide_applier,
-                reasoning_effort="low",  # Speed optimized for multiple pages
+                reasoning_effort="low",
                 verbosity="medium",
                 system_prompt=get_guide_applier_system(),
             )
+
+            # Parse JSON response
+            structured_output = self._parse_response(response)
+
+            # Check for contradictions
+            has_contradictions = False
+            if structured_output:
+                has_contradictions = any(
+                    v.status == RuleValidationStatus.CONTRADICTED
+                    for v in structured_output.rule_validations
+                )
 
             logger.info(
                 "guide_applier_complete",
@@ -86,11 +105,14 @@ class GuideApplierAgent:
                 step="validate_page",
                 page=page_order,
                 status="success",
+                has_contradictions=has_contradictions,
             )
 
             return ValidationResult(
                 page_order=page_order,
                 validation_report=response,
+                structured_output=structured_output,
+                has_contradictions=has_contradictions,
                 success=True,
             )
 
@@ -108,13 +130,15 @@ class GuideApplierAgent:
             return ValidationResult(
                 page_order=page_order,
                 validation_report="",
+                structured_output=None,
+                has_contradictions=False,
                 success=False,
                 error=str(e),
             )
 
     async def validate_all_pages(
         self,
-        pages: list[tuple[int, bytes]],  # (order, image_bytes)
+        pages: list[tuple[int, bytes]],
         provisional_guide: str,
         project_id: str,
     ) -> GuideApplierResult:
@@ -131,6 +155,7 @@ class GuideApplierAgent:
         """
         validations = []
         all_success = True
+        any_contradictions = False
 
         for page_order, image_bytes in pages:
             result = await self.validate_page(
@@ -142,8 +167,46 @@ class GuideApplierAgent:
             validations.append(result)
             if not result.success:
                 all_success = False
+            if result.has_contradictions:
+                any_contradictions = True
 
         return GuideApplierResult(
             page_validations=validations,
             all_success=all_success,
+            any_contradictions=any_contradictions,
         )
+
+    def _parse_response(self, response: str) -> Optional[GuideApplierOutput]:
+        """Parse JSON response into structured output."""
+        try:
+            json_str = self._extract_json(response)
+            data = json.loads(json_str)
+            return GuideApplierOutput.model_validate(data)
+        except Exception as e:
+            logger.warning(
+                "guide_applier_parse_warning",
+                error=str(e),
+                message="Could not parse structured output",
+            )
+            return None
+
+    def _extract_json(self, text: str) -> str:
+        """Extract JSON from text that may contain markdown code blocks."""
+        if "```json" in text:
+            start = text.find("```json") + 7
+            end = text.find("```", start)
+            if end > start:
+                return text[start:end].strip()
+
+        if "```" in text:
+            start = text.find("```") + 3
+            end = text.find("```", start)
+            if end > start:
+                return text[start:end].strip()
+
+        start = text.find("{")
+        end = text.rfind("}") + 1
+        if start >= 0 and end > start:
+            return text[start:end]
+
+        return text

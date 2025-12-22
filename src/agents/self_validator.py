@@ -1,7 +1,8 @@
 """Self-Validator Agent - Analyzes validation reports to determine rule stability."""
 
+from __future__ import annotations
+
 import json
-import re
 from dataclasses import dataclass
 from typing import Optional
 
@@ -10,6 +11,7 @@ from src.logging import get_logger
 from src.models.entities import RuleStability, RuleObservation, ConfidenceReport
 from .client import VisionClient
 from .prompts import get_self_validator_system, get_self_validator_prompt
+from .schemas import SelfValidatorOutput, StabilityClassification
 
 logger = get_logger(__name__)
 
@@ -19,7 +21,8 @@ class SelfValidatorResult:
     """Result from the Self-Validator agent."""
     confidence_report: ConfidenceReport
     raw_analysis: str
-    success: bool
+    structured_output: Optional[SelfValidatorOutput] = None
+    success: bool = True
     error: Optional[str] = None
 
 
@@ -79,9 +82,12 @@ class SelfValidatorAgent:
                 system_prompt=get_self_validator_system(),
             )
 
-            # Parse the response to extract structured data
-            confidence_report = self._parse_stability_response(
-                response,
+            # Parse JSON response
+            structured_output = self._parse_response(response)
+
+            # Convert to ConfidenceReport
+            confidence_report = self._build_confidence_report(
+                structured_output,
                 len(validation_reports) + 1,  # +1 for page 1
             )
 
@@ -93,11 +99,13 @@ class SelfValidatorAgent:
                 status="success",
                 stable_rules=confidence_report.stable_count,
                 unstable_rules=confidence_report.unstable_count,
+                can_generate=confidence_report.can_generate_final,
             )
 
             return SelfValidatorResult(
                 confidence_report=confidence_report,
                 raw_analysis=response,
+                structured_output=structured_output,
                 success=True,
             )
 
@@ -118,113 +126,104 @@ class SelfValidatorAgent:
                 error=str(e),
             )
 
-    def _parse_stability_response(
+    def _parse_response(self, response: str) -> Optional[SelfValidatorOutput]:
+        """Parse JSON response into structured output."""
+        try:
+            json_str = self._extract_json(response)
+            data = json.loads(json_str)
+            return SelfValidatorOutput.model_validate(data)
+        except Exception as e:
+            logger.warning(
+                "self_validator_parse_warning",
+                error=str(e),
+                message="Could not parse structured output",
+            )
+            return None
+
+    def _extract_json(self, text: str) -> str:
+        """Extract JSON from text that may contain markdown code blocks."""
+        if "```json" in text:
+            start = text.find("```json") + 7
+            end = text.find("```", start)
+            if end > start:
+                return text[start:end].strip()
+
+        if "```" in text:
+            start = text.find("```") + 3
+            end = text.find("```", start)
+            if end > start:
+                return text[start:end].strip()
+
+        start = text.find("{")
+        end = text.rfind("}") + 1
+        if start >= 0 and end > start:
+            return text[start:end]
+
+        return text
+
+    def _build_confidence_report(
         self,
-        response: str,
+        structured_output: Optional[SelfValidatorOutput],
         total_pages: int,
     ) -> ConfidenceReport:
-        """
-        Parse the model's stability analysis into a structured report.
-
-        This is a heuristic parser - the model output is semi-structured.
-        """
-        rules = []
-        stable_count = 0
-        partial_count = 0
-        unstable_count = 0
-
-        # Look for rule patterns in the response
-        # Expected format includes STABLE, PARTIAL, UNSTABLE markers
-        lines = response.split('\n')
-
-        current_rule_id = None
-        current_description = ""
-        current_stability = None
-
-        for line in lines:
-            line_lower = line.lower().strip()
-
-            # Detect stability markers
-            if 'stable' in line_lower and 'unstable' not in line_lower:
-                if 'partial' in line_lower:
-                    current_stability = RuleStability.PARTIAL
-                else:
-                    current_stability = RuleStability.STABLE
-            elif 'unstable' in line_lower:
-                current_stability = RuleStability.UNSTABLE
-
-            # Try to extract rule IDs (patterns like "Rule 1:", "RULE_001:", etc.)
-            rule_match = re.search(r'rule[_\s]*(\d+|[a-z]+)', line_lower)
-            if rule_match:
-                # Save previous rule if exists
-                if current_rule_id and current_stability:
-                    score = self._stability_to_score(current_stability)
-                    rules.append(RuleObservation(
-                        rule_id=current_rule_id,
-                        description=current_description.strip(),
-                        stability=current_stability,
-                        confidence_score=score,
-                    ))
-                    if current_stability == RuleStability.STABLE:
-                        stable_count += 1
-                    elif current_stability == RuleStability.PARTIAL:
-                        partial_count += 1
-                    else:
-                        unstable_count += 1
-
-                current_rule_id = f"RULE_{rule_match.group(1).upper()}"
-                current_description = line
-                current_stability = None
-
-            elif current_rule_id:
-                current_description += " " + line
-
-        # Save last rule
-        if current_rule_id and current_stability:
-            score = self._stability_to_score(current_stability)
-            rules.append(RuleObservation(
-                rule_id=current_rule_id,
-                description=current_description.strip(),
-                stability=current_stability,
-                confidence_score=score,
-            ))
-            if current_stability == RuleStability.STABLE:
-                stable_count += 1
-            elif current_stability == RuleStability.PARTIAL:
-                partial_count += 1
-            else:
-                unstable_count += 1
-
-        # Calculate overall stability
-        total_rules = len(rules) if rules else 1
-        overall_stability = stable_count / total_rules if total_rules > 0 else 0.0
-
-        # Determine if we can generate final guide
-        can_generate = overall_stability >= self.settings.min_stable_rules_ratio
-        rejection_reason = None
-        if not can_generate:
-            rejection_reason = (
-                f"Insufficient stable rules: {stable_count}/{total_rules} "
-                f"({overall_stability:.1%}) is below the required "
-                f"{self.settings.min_stable_rules_ratio:.0%} threshold."
+        """Build ConfidenceReport from structured output."""
+        if structured_output is None:
+            # Fallback: conservative empty report
+            return ConfidenceReport(
+                total_rules=0,
+                stable_count=0,
+                partial_count=0,
+                unstable_count=0,
+                rules=[],
+                overall_stability=0.0,
+                can_generate_final=False,
+                rejection_reason="Failed to parse self-validator response",
             )
 
+        # Convert structured assessments to RuleObservation objects
+        rules = []
+        for assessment in structured_output.rule_assessments:
+            stability = self._classification_to_stability(assessment.classification)
+            rules.append(RuleObservation(
+                rule_id=assessment.rule_id,
+                description=f"Tested on {assessment.pages_testable} pages, "
+                            f"confirmed {assessment.pages_confirmed}, "
+                            f"contradicted {assessment.pages_contradicted}",
+                stability=stability,
+                confidence_score=assessment.confidence_score,
+            ))
+
+        # Use structured output values directly
+        can_generate = structured_output.can_generate_guide
+        rejection_reason = structured_output.rejection_reason
+
+        # Double-check against our threshold
+        if structured_output.overall_stability_ratio < self.settings.min_stable_rules_ratio:
+            can_generate = False
+            if not rejection_reason:
+                rejection_reason = (
+                    f"Insufficient stable rules: {structured_output.stable_count}/"
+                    f"{structured_output.total_rules} "
+                    f"({structured_output.overall_stability_ratio:.1%}) is below the required "
+                    f"{self.settings.min_stable_rules_ratio:.0%} threshold."
+                )
+
         return ConfidenceReport(
-            total_rules=total_rules,
-            stable_count=stable_count,
-            partial_count=partial_count,
-            unstable_count=unstable_count,
+            total_rules=structured_output.total_rules,
+            stable_count=structured_output.stable_count,
+            partial_count=structured_output.partial_count,
+            unstable_count=structured_output.unstable_count,
             rules=rules,
-            overall_stability=overall_stability,
+            overall_stability=structured_output.overall_stability_ratio,
             can_generate_final=can_generate,
             rejection_reason=rejection_reason,
         )
 
-    def _stability_to_score(self, stability: RuleStability) -> float:
-        """Convert stability enum to a confidence score."""
-        if stability == RuleStability.STABLE:
-            return 0.9
-        elif stability == RuleStability.PARTIAL:
-            return 0.6
+    def _classification_to_stability(self, classification: StabilityClassification) -> RuleStability:
+        """Convert schema classification to entity stability."""
+        if classification == StabilityClassification.STABLE:
+            return RuleStability.STABLE
+        elif classification == StabilityClassification.PARTIAL:
+            return RuleStability.PARTIAL
         else:
-            return 0.2
+            return RuleStability.UNSTABLE

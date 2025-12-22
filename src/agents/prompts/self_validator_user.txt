@@ -1,4 +1,4 @@
-Analyze the following validation data and assess rule stability.
+Analyze the validation data and assess rule stability.
 
 PROVISIONAL GUIDE:
 {provisional_guide}
@@ -6,18 +6,42 @@ PROVISIONAL GUIDE:
 VALIDATION REPORTS FROM PAGES:
 {validation_reports}
 
-For each rule, calculate:
-1. Pages where rule was testable
-2. Pages where rule was confirmed
-3. Pages where rule was contradicted
-4. Pages with variations
+You MUST respond with a valid JSON object following this exact structure:
 
-Classify each rule as STABLE, PARTIAL, or UNSTABLE.
+```json
+{
+  "total_rules": 5,
+  "rule_assessments": [
+    {
+      "rule_id": "RULE_001",
+      "classification": "stable | partial | unstable",
+      "pages_testable": 3,
+      "pages_confirmed": 3,
+      "pages_contradicted": 0,
+      "pages_variation": 0,
+      "confidence_score": 0.95,
+      "recommendation": "include | exclude | needs_more_data"
+    }
+  ],
+  "stable_count": 3,
+  "partial_count": 1,
+  "unstable_count": 1,
+  "overall_stability_ratio": 0.6,
+  "can_generate_guide": true,
+  "rejection_reason": null
+}
+```
 
-Provide:
-- Stability score per rule (0.0 to 1.0)
-- Overall guide stability (ratio of stable rules)
-- Specific recommendations for each unstable rule
-- Assessment of whether a final guide can be generated
+CLASSIFICATION RULES - NO AMBIGUITY ALLOWED:
+- STABLE: Confirmed on 80%+ of testable pages AND zero contradictions
+- PARTIAL: Confirmed on 50-79% of testable pages, OR has variations but no contradictions
+- UNSTABLE: ANY contradiction on ANY page, OR confirmed on <50% of testable pages
 
-Be explicit about any rules that MUST be excluded from the final guide.
+CRITICAL:
+1. Every rule MUST be classified as exactly one of: stable, partial, unstable
+2. A single contradiction makes a rule UNSTABLE - no exceptions
+3. "can_generate_guide" is true ONLY if stable_count / total_rules >= 0.6
+4. If can_generate_guide is false, rejection_reason MUST explain why
+5. recommendation must be: "include" for stable, "exclude" for unstable, "needs_more_data" for partial
+
+Respond ONLY with the JSON object, no other text.

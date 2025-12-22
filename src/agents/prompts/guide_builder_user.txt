@@ -1,41 +1,46 @@
 Analyze this construction plan page to discover the visual conventions used in this project.
 
-For each visual element you observe, identify:
+You MUST respond with a valid JSON object following this exact structure:
 
-1. LINE STYLES
-   - Different line weights and what they might distinguish
-   - Dashed vs solid lines and their apparent meanings
-   - Any special line patterns you observe
+```json
+{
+  "observations": [
+    {
+      "id": "OBS_001",
+      "category": "LINE_STYLE | SYMBOL | TEXT | HATCHING | COLOR | LAYOUT",
+      "description": "Factual description of what you see",
+      "location": "Where on the page",
+      "confidence": "high | medium | low"
+    }
+  ],
+  "candidate_rules": [
+    {
+      "id": "RULE_001",
+      "description": "The rule statement",
+      "based_on": ["OBS_001", "OBS_002"],
+      "confidence": "high | medium | low"
+    }
+  ],
+  "uncertainties": [
+    "List of things that are unclear or need validation"
+  ],
+  "assumptions": []
+}
+```
 
-2. SYMBOLS AND MARKERS
-   - Recurring graphical symbols
-   - What context they appear in
-   - Do NOT assume standard meanings - describe what you SEE
+CRITICAL RULES:
+1. The "assumptions" array MUST be empty - you are not allowed to assume anything
+2. Every observation must be something you can SEE, not infer
+3. Do NOT assume standard meanings for any symbol
+4. Each candidate_rule must reference specific observations in "based_on"
+5. Mark confidence as "low" if you have any doubt
 
-3. TEXT AND ANNOTATIONS
-   - Font sizes and their apparent hierarchy
-   - Label formats and patterns
-   - Dimension notation style
+Categories to analyze:
+- LINE_STYLE: Line weights, dashed/solid, patterns
+- SYMBOL: Recurring graphical symbols and their context
+- TEXT: Font sizes, label formats, dimension notation
+- HATCHING: Fill patterns and what areas they mark
+- COLOR: Colors used and apparent meaning
+- LAYOUT: Information organization, headers, scale notation
 
-4. HATCHING AND FILLS
-   - Different fill patterns observed
-   - What areas they are applied to
-   - Apparent distinctions they create
-
-5. COLOR USAGE (if applicable)
-   - Colors used and where
-   - Apparent meaning based on context
-
-6. LAYOUT CONVENTIONS
-   - How information is organized
-   - Header/footer patterns
-   - Scale notation
-
-For each convention, provide:
-- DESCRIPTION: What you observe
-- CONTEXT: Where/how it appears
-- CONFIDENCE: High/Medium/Low based on clarity
-- EVIDENCE: Specific examples from this page
-
-Format your response as a structured visual guide that another analyst could use.
-Mark any uncertainties explicitly - these will be validated against other pages.
+Respond ONLY with the JSON object, no other text.

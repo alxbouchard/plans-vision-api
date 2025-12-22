@@ -163,10 +163,28 @@ class TestAnalysis:
     """Tests for analysis endpoints."""
 
     @pytest.mark.asyncio
-    async def test_start_analysis_insufficient_pages(
+    async def test_start_analysis_no_pages(
         self, client: AsyncClient, headers: dict
     ):
-        """Test that analysis requires at least 2 pages."""
+        """Test that analysis requires at least 1 page."""
+        # Create project with no pages
+        create_response = await client.post("/projects", headers=headers)
+        project_id = create_response.json()["id"]
+
+        # Try to start analysis
+        response = await client.post(
+            f"/projects/{project_id}/analyze",
+            headers=headers,
+        )
+
+        assert response.status_code == 422
+        assert "1 page required" in response.json()["detail"]
+
+    @pytest.mark.asyncio
+    async def test_start_analysis_single_page_allowed(
+        self, client: AsyncClient, headers: dict
+    ):
+        """Test that single-page analysis is now allowed (Option B: provisional only)."""
         # Create project with only 1 page
         create_response = await client.post("/projects", headers=headers)
         project_id = create_response.json()["id"]
@@ -178,14 +196,14 @@ class TestAnalysis:
             files={"file": ("page1.png", png_data, "image/png")},
         )
 
-        # Try to start analysis
+        # Start analysis - should be accepted now
         response = await client.post(
             f"/projects/{project_id}/analyze",
             headers=headers,
         )
 
-        assert response.status_code == 422
-        assert "2 pages required" in response.json()["detail"]
+        # 202 Accepted - analysis will run in background
+        assert response.status_code == 202
 
     @pytest.mark.asyncio
     async def test_get_status(self, client: AsyncClient, headers: dict):

@@ -115,12 +115,12 @@ async def start_analysis(
             detail="Analysis already in progress",
         )
 
-    # Check page count
+    # Check page count (at least 1 required)
     page_count = await project_repo.get_page_count(project_id)
-    if page_count < 2:
+    if page_count < 1:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"At least 2 pages required, found {page_count}",
+            detail="At least 1 page required",
         )
 
     # Update status and start background task

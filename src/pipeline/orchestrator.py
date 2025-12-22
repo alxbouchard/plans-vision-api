@@ -38,9 +38,11 @@ class PipelineResult:
     success: bool
     has_stable_guide: bool
     stable_guide: Optional[str] = None
+    provisional_guide: Optional[str] = None
     rejection_message: Optional[str] = None
     error: Optional[str] = None
     pages_processed: int = 0
+    is_provisional_only: bool = False
 
 
 class PipelineOrchestrator:
@@ -116,11 +118,9 @@ class PipelineOrchestrator:
                     error_code="NO_PAGES"
                 )
 
-            if len(pages) < 2:
-                raise PipelineError(
-                    "At least 2 pages required for validation",
-                    error_code="INSUFFICIENT_PAGES"
-                )
+            # Single page projects: Option B - provisional only
+            if len(pages) == 1:
+                return await self._run_single_page_flow(project_id, pages[0])
 
             # Update status to processing
             await self.projects.update_status(project_id, ProjectStatus.PROCESSING)
@@ -296,4 +296,96 @@ class PipelineOrchestrator:
             raise PipelineError(
                 f"Unexpected pipeline error: {e}",
                 error_code="UNEXPECTED_ERROR"
+            )
+
+    async def _run_single_page_flow(
+        self,
+        project_id: UUID,
+        page,
+    ) -> PipelineResult:
+        """
+        Run Option B: Single-page provisional-only flow.
+
+        With only one page, we cannot validate rules across multiple pages.
+        We generate a provisional guide only, clearly marked as unvalidated.
+        """
+        project_id_str = str(project_id)
+
+        logger.info(
+            "pipeline_single_page_start",
+            project_id=project_id_str,
+            step="single_page_flow",
+        )
+
+        try:
+            await self.projects.update_status(project_id, ProjectStatus.PROCESSING)
+
+            # Initialize guide storage
+            guide = await self.guides.get_or_create(project_id)
+
+            # Build provisional guide from the single page
+            page_bytes = await self.file_storage.read_image_bytes(page.file_path)
+
+            builder_result = await self.guide_builder.build_guide(
+                image_bytes=page_bytes,
+                project_id=project_id_str,
+            )
+
+            if not builder_result.success:
+                await self.projects.update_status(project_id, ProjectStatus.FAILED)
+                raise PipelineError(
+                    f"Guide builder failed: {builder_result.error}",
+                    error_code="GUIDE_BUILDER_FAILED"
+                )
+
+            provisional_guide = builder_result.provisional_guide
+            await self.guides.update_provisional(project_id, provisional_guide)
+
+            # For single-page: stable = null, explicit rejection reason
+            rejection_message = (
+                "Cannot generate stable guide: Only 1 page provided. "
+                "Validation requires at least 2 pages to test rule consistency. "
+                "The provisional guide above contains candidate rules observed on page 1 "
+                "but they have NOT been validated against other pages."
+            )
+
+            # Update status - use a special status or mark as failed with reason
+            await self.projects.update_status(project_id, ProjectStatus.FAILED)
+
+            logger.info(
+                "pipeline_single_page_complete",
+                project_id=project_id_str,
+                step="single_page_flow",
+                status="provisional_only",
+            )
+
+            return PipelineResult(
+                success=True,  # Pipeline ran successfully
+                has_stable_guide=False,
+                stable_guide=None,
+                provisional_guide=provisional_guide,
+                rejection_message=rejection_message,
+                pages_processed=1,
+                is_provisional_only=True,
+            )
+
+        except PipelineError:
+            raise
+
+        except Exception as e:
+            logger.error(
+                "pipeline_single_page_error",
+                project_id=project_id_str,
+                step="single_page_flow",
+                error=str(e),
+            )
+
+            try:
+                await self.projects.update_status(project_id, ProjectStatus.FAILED)
+            except Exception:
+                pass
+
+            raise PipelineError(
+                f"Single page flow error: {e}",
+                error_code="SINGLE_PAGE_ERROR"
             )
