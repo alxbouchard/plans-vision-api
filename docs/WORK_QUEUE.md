@@ -9,108 +9,64 @@ the agent MUST stop and ask.
 ---
 
 ## Phase 1 — Build Visual Guide (LOCKED)
+Status: LOCKED
 
-Status: LOCKED  
 No further feature work is allowed in Phase 1.
 
-Allowed:
-- Documentation updates (clarity only)
-- Non-behavioral refactors
-- Additional tests that do not change behavior
+---
+
+## Phase 1.5 — Hardening for SaaS (COMPLETE)
+Status: COMPLETE
+
+No further tasks unless bug fixes.
 
 ---
 
-## Phase 1.5 — Hardening for SaaS (Allowed Autonomous Work)
+## Phase 2 — Extraction and Query (READY)
 
-Goal: Make the API production-grade as a standalone monetizable service WITHOUT adding Phase 2 features.
+Goal: deliver v2 endpoints for object extraction and querying.
+Follow docs/FEATURE_ExtractObjects.md and docs/PHASE2_DECISIONS.md.
 
-### 1) Public API contract and schemas
-- Add docs/API_CONTRACT_v1.md describing endpoints, request/response JSON examples, and error codes.
-- Ensure OpenAPI schema includes response models for /status and /guide.
-- Add schema versioning in responses: schema_version field.
+Allowed autonomous tasks in Phase 2:
 
-### 2) Multi-tenant foundation
-- Implement API key auth middleware:
-  - Required header: X-API-Key
-  - Reject with 401/403 using standardized error format
-- Introduce tenant_id in DB models and enforce isolation in queries.
-- Add rate limiting (simple fixed window acceptable for v1).
-- Add quotas:
-  - max projects per tenant
-  - max pages per project
-  - max pages per month
-- Add usage counters (pages_processed).
+1 Page classification
+- Implement page_type classifier and persistence.
+- Add tests Gate A.
 
-### 3) Idempotency and retries
-- Add idempotency key support for:
-  - create project
-  - upload page
-  - analyze start
-- Ensure re-sent requests do not duplicate resources.
-- Add safe retry logic around model calls with exponential backoff.
+2 Extraction pipeline
+- Implement /v2/projects/{id}/extract as async job.
+- Steps: classify_pages, extract_objects, build_index.
+- Implement status endpoint.
 
-### 4) Error taxonomy enforcement
-- Ensure every failure path maps to a documented error_code in docs/ERRORS.md.
-- Ensure /status returns structured step errors when pipeline fails.
-- Add tests for each major error code.
+3 Rooms extraction
+- Implement conservative room label detection and bbox association.
+- Add tests Gate B and Gate C.
 
-### 5) Observability
-- Add structured logging fields:
-  - timestamp
-  - tenant_id
-  - project_id
-  - step
-  - duration_ms
-  - outcome
-  - error_code
-- Add request_id correlation and include it in responses.
-- Add minimal metrics via logs for:
-  - pages_processed
-  - guides_generated
-  - guides_rejected
-  - avg_latency_per_step
+4 Doors extraction
+- Implement conservative door detection on plan pages.
+- Add tests Gate E.
 
-### 6) Storage hardening
-- Validate uploads:
-  - PNG only
-  - max file size
-  - max pixel dimensions
-- Ensure storage paths are tenant-scoped.
-- Add cleanup policy for temporary artifacts.
+5 Schedule extraction
+- Implement schedule page table extraction.
+- Add tests Gate F.
 
-### 7) Dataset and fixtures
-- Add a testdata folder with:
-  - 1 real plan set (3 pages) for regression tests
-  - 1 contradiction set (2 pages) for rejection tests
-- Ensure fixtures do not include sensitive client data.
+6 Project index
+- Deterministic ID strategy per PHASE2_DECISIONS.
+- Build rooms_by_number and objects_by_type.
+- Add tests Gate H.
 
-### 8) Release hygiene
-- Add docs/CHANGELOG.md with semantic versioning notes.
-- Add docs/SECURITY.md for secret handling and env vars.
-- Add docs/RUNBOOK.md for run, debug, triage.
-- Add a Makefile or scripts:
-  - make test
-  - make run
+7 Query endpoint
+- Implement query and ambiguity behavior.
+- Add tests Gate D.
 
-Allowed refactors:
-- Refactor for readability if behavior and schemas remain unchanged.
-- Improve code structure to reduce duplication.
+8 Schema enforcement and failure behavior
+- Ensure invalid model output fails loudly.
+- Add tests Gate G.
 
-Forbidden:
-- Object extraction (rooms, doors, windows, etc.)
-- Bounding boxes or polygons
-- PDF annotation output
-- Viewer-specific outputs or UI work
+Stop conditions
+- If any task requires PDF output or viewer UI, stop and ask.
+- If polygons are required to pass gates, stop and ask.
 
----
-
-## Phase 2 — Extraction and Viewer Outputs (NOT STARTED)
-
-No Phase 2 work is allowed unless explicitly approved.
-
-Examples requiring approval:
-- rooms detection and “Classe 203” queries
-- doors/windows extraction
-- PDF in → annotated PDF out
-- JSON overlay for viewer
-- searchable object index
+Definition of done
+- All tests in TEST_GATES_PHASE2 pass.
+- v2 contract matches API_CONTRACT_v2.
