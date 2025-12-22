@@ -19,6 +19,8 @@ class TestProjects:
         assert "id" in data
         assert data["status"] == "draft"
         assert data["page_count"] == 0
+        # Phase 1.5: Verify schema_version is present
+        assert data["schema_version"] == "1.0"
 
     @pytest.mark.asyncio
     async def test_create_project_missing_owner_id(self, client: AsyncClient):

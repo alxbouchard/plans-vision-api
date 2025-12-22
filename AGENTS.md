@@ -108,3 +108,26 @@ When in doubt:
 - Do not invent
 - Do not expand scope
 - Ask before implementing
+
+## Autonomous Execution Mode
+
+When explicitly enabled by the human, the agent is allowed to:
+
+- Execute a sequence of tasks without stopping for confirmation
+- Continue working across commits within the same phase
+- Self-assign the next task ONLY if it is explicitly allowed by:
+  - docs/PROJECT_STATUS.md
+  - the current FEATURE doc
+  - docs/TEST_GATES.md
+
+The agent MUST stop and wait for human input if:
+- A task would move the project to a new phase
+- A task would expand scope
+- A task is not clearly allowed by the current phase documents
+
+When Autonomous Execution Mode is enabled, the agent MUST:
+1. State the task it is starting
+2. Execute it fully (tests → implementation → tests)
+3. Commit the result
+4. Update docs/PROJECT_STATUS.md if the state changed
+5. Automatically proceed to the next allowed task

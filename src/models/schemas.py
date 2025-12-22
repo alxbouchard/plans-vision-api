@@ -33,10 +33,26 @@ class ProjectCreate(BaseModel):
 
 
 # =============================================================================
+# Base Response Schema
+# =============================================================================
+
+# API schema version - increment when breaking changes are made
+SCHEMA_VERSION: str = "1.0"
+
+
+class BaseResponse(BaseModel):
+    """Base class for all API responses with schema versioning."""
+    schema_version: str = Field(
+        default=SCHEMA_VERSION,
+        description="API schema version for compatibility tracking"
+    )
+
+
+# =============================================================================
 # Response Schemas
 # =============================================================================
 
-class ProjectResponse(BaseModel):
+class ProjectResponse(BaseResponse):
     """
     Project response.
 
@@ -60,12 +76,13 @@ class ProjectResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class PageResponse(BaseModel):
+class PageResponse(BaseResponse):
     """
     Page upload response.
 
     Example:
         {
+            "schema_version": "1.0",
             "id": "660e8400-e29b-41d4-a716-446655440001",
             "project_id": "550e8400-e29b-41d4-a716-446655440000",
             "order": 1,
@@ -183,7 +200,7 @@ class ConfidenceReportSchema(BaseModel):
     )
 
 
-class VisualGuideResponse(BaseModel):
+class VisualGuideResponse(BaseResponse):
     """
     Visual guide response containing provisional and/or stable guide.
 
@@ -273,7 +290,7 @@ class UsageStatsSchema(BaseModel):
     requests: int = Field(default=0, description="Number of API requests made")
 
 
-class PipelineStatusResponse(BaseModel):
+class PipelineStatusResponse(BaseResponse):
     """
     Status of the analysis pipeline.
 
@@ -324,12 +341,13 @@ class PipelineStatusResponse(BaseModel):
     )
 
 
-class ErrorResponse(BaseModel):
+class ErrorResponse(BaseResponse):
     """
     Standard error response.
 
     Example:
         {
+            "schema_version": "1.0",
             "error_code": "PROJECT_NOT_FOUND",
             "message": "Project not found",
             "details": {"project_id": "..."}
@@ -346,12 +364,13 @@ class ErrorResponse(BaseModel):
     )
 
 
-class AnalysisStartResponse(BaseModel):
+class AnalysisStartResponse(BaseResponse):
     """
     Response when analysis is started.
 
     Example:
         {
+            "schema_version": "1.0",
             "project_id": "550e8400-e29b-41d4-a716-446655440000",
             "message": "Analysis started",
             "pages_to_process": 5
