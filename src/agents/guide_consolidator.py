@@ -7,7 +7,7 @@ from src.config import get_settings
 from src.logging import get_logger
 from src.models.entities import ConfidenceReport
 from .client import VisionClient
-from .prompts import GUIDE_CONSOLIDATOR_SYSTEM, GUIDE_CONSOLIDATOR_PROMPT
+from .prompts import get_guide_consolidator_system, get_guide_consolidator_prompt
 
 logger = get_logger(__name__)
 
@@ -82,7 +82,7 @@ class GuideConsolidatorAgent:
             # Format the stability report for the prompt
             stability_summary = self._format_stability_report(confidence_report)
 
-            prompt = GUIDE_CONSOLIDATOR_PROMPT.format(
+            prompt = get_guide_consolidator_prompt().format(
                 provisional_guide=provisional_guide,
                 stability_report=f"{stability_summary}\n\nDETAILED ANALYSIS:\n{raw_stability_analysis}",
                 min_stable_ratio=int(self.settings.min_stable_rules_ratio * 100),
@@ -93,7 +93,7 @@ class GuideConsolidatorAgent:
                 model=self.settings.model_guide_consolidator,
                 reasoning_effort="medium",
                 verbosity="high",
-                system_prompt=GUIDE_CONSOLIDATOR_SYSTEM,
+                system_prompt=get_guide_consolidator_system(),
             )
 
             # Check if the model also refused (double-check)

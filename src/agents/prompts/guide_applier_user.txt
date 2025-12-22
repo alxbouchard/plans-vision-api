@@ -1,0 +1,16 @@
+Test this provisional visual guide against the current page.
+
+PROVISIONAL GUIDE:
+{provisional_guide}
+
+For each rule in the guide, report:
+1. CONFIRMED - The rule holds true on this page (cite evidence)
+2. CONTRADICTED - The rule is violated on this page (explain how)
+3. NOT TESTABLE - The relevant elements don't appear on this page
+4. VARIATION OBSERVED - Similar but not identical pattern
+
+Also report:
+- Any NEW conventions observed that are not in the guide
+- Overall consistency assessment
+
+Format your response as a structured validation report with clear citations.

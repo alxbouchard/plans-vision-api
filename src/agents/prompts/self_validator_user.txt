@@ -1,0 +1,23 @@
+Analyze the following validation data and assess rule stability.
+
+PROVISIONAL GUIDE:
+{provisional_guide}
+
+VALIDATION REPORTS FROM PAGES:
+{validation_reports}
+
+For each rule, calculate:
+1. Pages where rule was testable
+2. Pages where rule was confirmed
+3. Pages where rule was contradicted
+4. Pages with variations
+
+Classify each rule as STABLE, PARTIAL, or UNSTABLE.
+
+Provide:
+- Stability score per rule (0.0 to 1.0)
+- Overall guide stability (ratio of stable rules)
+- Specific recommendations for each unstable rule
+- Assessment of whether a final guide can be generated
+
+Be explicit about any rules that MUST be excluded from the final guide.

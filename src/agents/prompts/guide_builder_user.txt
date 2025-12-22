@@ -1,0 +1,41 @@
+Analyze this construction plan page to discover the visual conventions used in this project.
+
+For each visual element you observe, identify:
+
+1. LINE STYLES
+   - Different line weights and what they might distinguish
+   - Dashed vs solid lines and their apparent meanings
+   - Any special line patterns you observe
+
+2. SYMBOLS AND MARKERS
+   - Recurring graphical symbols
+   - What context they appear in
+   - Do NOT assume standard meanings - describe what you SEE
+
+3. TEXT AND ANNOTATIONS
+   - Font sizes and their apparent hierarchy
+   - Label formats and patterns
+   - Dimension notation style
+
+4. HATCHING AND FILLS
+   - Different fill patterns observed
+   - What areas they are applied to
+   - Apparent distinctions they create
+
+5. COLOR USAGE (if applicable)
+   - Colors used and where
+   - Apparent meaning based on context
+
+6. LAYOUT CONVENTIONS
+   - How information is organized
+   - Header/footer patterns
+   - Scale notation
+
+For each convention, provide:
+- DESCRIPTION: What you observe
+- CONTEXT: Where/how it appears
+- CONFIDENCE: High/Medium/Low based on clarity
+- EVIDENCE: Specific examples from this page
+
+Format your response as a structured visual guide that another analyst could use.
+Mark any uncertainties explicitly - these will be validated against other pages.

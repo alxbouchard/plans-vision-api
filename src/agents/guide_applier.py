@@ -6,7 +6,7 @@ from typing import Optional
 from src.config import get_settings
 from src.logging import get_logger
 from .client import VisionClient
-from .prompts import GUIDE_APPLIER_SYSTEM, GUIDE_APPLIER_PROMPT
+from .prompts import get_guide_applier_system, get_guide_applier_prompt
 
 logger = get_logger(__name__)
 
@@ -66,7 +66,7 @@ class GuideApplierAgent:
         )
 
         try:
-            prompt = GUIDE_APPLIER_PROMPT.format(
+            prompt = get_guide_applier_prompt().format(
                 provisional_guide=provisional_guide
             )
 
@@ -76,7 +76,7 @@ class GuideApplierAgent:
                 model=self.settings.model_guide_applier,
                 reasoning_effort="low",  # Speed optimized for multiple pages
                 verbosity="medium",
-                system_prompt=GUIDE_APPLIER_SYSTEM,
+                system_prompt=get_guide_applier_system(),
             )
 
             logger.info(

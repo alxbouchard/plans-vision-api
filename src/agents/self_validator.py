@@ -9,7 +9,7 @@ from src.config import get_settings
 from src.logging import get_logger
 from src.models.entities import RuleStability, RuleObservation, ConfidenceReport
 from .client import VisionClient
-from .prompts import SELF_VALIDATOR_SYSTEM, SELF_VALIDATOR_PROMPT
+from .prompts import get_self_validator_system, get_self_validator_prompt
 
 logger = get_logger(__name__)
 
@@ -66,7 +66,7 @@ class SelfValidatorAgent:
                 for order, report in validation_reports
             ])
 
-            prompt = SELF_VALIDATOR_PROMPT.format(
+            prompt = get_self_validator_prompt().format(
                 provisional_guide=provisional_guide,
                 validation_reports=reports_text,
             )
@@ -76,7 +76,7 @@ class SelfValidatorAgent:
                 model=self.settings.model_self_validator,
                 reasoning_effort="high",
                 verbosity="high",
-                system_prompt=SELF_VALIDATOR_SYSTEM,
+                system_prompt=get_self_validator_system(),
             )
 
             # Parse the response to extract structured data

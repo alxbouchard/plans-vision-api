@@ -6,7 +6,7 @@ from typing import Optional
 from src.config import get_settings
 from src.logging import get_logger
 from .client import VisionClient
-from .prompts import GUIDE_BUILDER_SYSTEM, GUIDE_BUILDER_PROMPT
+from .prompts import get_guide_builder_system, get_guide_builder_prompt
 
 logger = get_logger(__name__)
 
@@ -51,11 +51,11 @@ class GuideBuilderAgent:
         try:
             response = await self.client.analyze_image(
                 image_bytes=image_bytes,
-                prompt=GUIDE_BUILDER_PROMPT,
+                prompt=get_guide_builder_prompt(),
                 model=self.settings.model_guide_builder,
                 reasoning_effort="high",  # Could use xhigh for more complex plans
                 verbosity="high",
-                system_prompt=GUIDE_BUILDER_SYSTEM,
+                system_prompt=get_guide_builder_system(),
             )
 
             logger.info(

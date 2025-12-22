@@ -1,0 +1,25 @@
+Produce a final visual guide from the validated data.
+
+PROVISIONAL GUIDE:
+{provisional_guide}
+
+STABILITY REPORT:
+{stability_report}
+
+REQUIREMENTS:
+1. Include ONLY rules marked as STABLE
+2. Format each rule clearly with:
+   - Rule ID
+   - Description
+   - When it applies
+   - Visual examples/evidence
+3. Document any PARTIAL rules as "Additional observations (not validated)"
+4. List all EXCLUDED rules and why
+5. State the overall guide confidence level
+
+If the stability report shows fewer than {min_stable_ratio}% stable rules:
+- DO NOT produce a guide
+- Instead, explain what additional pages or information would be needed
+- Return a structured rejection with specific recommendations
+
+Format the final guide for practical use by analysts reviewing other pages of this project.
