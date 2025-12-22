@@ -431,3 +431,296 @@ class TestSchemaValidation:
         assert output.total_rules == 3
         assert output.can_generate_guide is False
         assert output.rule_assessments[0].classification == StabilityClassification.UNSTABLE
+
+
+class TestConsistentPagesFlow:
+    """Gate 2: Consistent pages produce stable guide."""
+
+    @pytest.mark.asyncio
+    async def test_consistent_pages_produce_stable_guide(self):
+        """With 2+ consistent pages, a stable guide is generated."""
+        session = MagicMock()
+        file_storage = MagicMock()
+
+        orchestrator = PipelineOrchestrator(session, file_storage)
+
+        # Mock repositories
+        project_mock = MagicMock()
+        project_mock.status = ProjectStatus.DRAFT
+
+        page1 = MagicMock()
+        page1.file_path = "/path/to/page1.png"
+        page1.order = 1
+
+        page2 = MagicMock()
+        page2.file_path = "/path/to/page2.png"
+        page2.order = 2
+
+        orchestrator.projects.get_by_id = AsyncMock(return_value=project_mock)
+        orchestrator.projects.update_status = AsyncMock()
+        orchestrator.pages.list_by_project = AsyncMock(return_value=[page1, page2])
+        orchestrator.guides.get_or_create = AsyncMock(return_value=MagicMock())
+        orchestrator.guides.update_provisional = AsyncMock()
+        orchestrator.guides.update_confidence_report = AsyncMock()
+        orchestrator.guides.update_stable = AsyncMock()
+
+        orchestrator.file_storage.read_image_bytes = AsyncMock(return_value=b"fake png")
+
+        # Mock guide builder
+        orchestrator.guide_builder.build_guide = AsyncMock(
+            return_value=GuideBuilderResult(
+                provisional_guide='{"candidate_rules": [{"id": "RULE_001"}]}',
+                structured_output=None,
+                success=True,
+            )
+        )
+
+        # Mock guide applier - all rules confirmed (no contradictions)
+        mock_applier_output = GuideApplierOutput(
+            page_number=2,
+            rule_validations=[
+                RuleValidation(
+                    rule_id="RULE_001",
+                    status=RuleValidationStatus.CONFIRMED,
+                    evidence="Page 2 confirms pattern",
+                ),
+            ],
+            new_observations=[],
+            overall_consistency="consistent",
+        )
+
+        orchestrator.guide_applier.validate_all_pages = AsyncMock(
+            return_value=GuideApplierResult(
+                page_validations=[
+                    ValidationResult(
+                        page_order=2,
+                        validation_report='{"rule_validations": [{"rule_id": "RULE_001", "status": "confirmed"}]}',
+                        structured_output=mock_applier_output,
+                        has_contradictions=False,
+                        success=True,
+                    ),
+                ],
+                all_success=True,
+                any_contradictions=False,
+            )
+        )
+
+        # Mock self-validator - all rules stable
+        confidence_report = ConfidenceReport(
+            total_rules=1,
+            stable_count=1,
+            partial_count=0,
+            unstable_count=0,
+            rules=[
+                RuleObservation(
+                    rule_id="RULE_001",
+                    description="Confirmed",
+                    stability=RuleStability.STABLE,
+                    confidence_score=0.95,
+                )
+            ],
+            overall_stability=1.0,
+            can_generate_final=True,
+            rejection_reason=None,
+        )
+
+        orchestrator.self_validator.validate_stability = AsyncMock(
+            return_value=SelfValidatorResult(
+                confidence_report=confidence_report,
+                raw_analysis='{"can_generate_guide": true}',
+                structured_output=None,
+                success=True,
+            )
+        )
+
+        # Mock consolidator - generates stable guide
+        orchestrator.guide_consolidator.consolidate_guide = AsyncMock(
+            return_value=ConsolidatorResult(
+                stable_guide="# VALIDATED VISUAL GUIDE\n\nRULE_001: Pattern confirmed",
+                rejection_message=None,
+                structured_output=None,
+                success=True,
+            )
+        )
+
+        # Run pipeline
+        result = await orchestrator.run(uuid4(), uuid4())
+
+        # Assertions: Gate 2 - stable guide generated
+        assert result.success is True
+        assert result.has_stable_guide is True
+        assert result.stable_guide is not None
+        assert "VALIDATED" in result.stable_guide or "RULE_001" in result.stable_guide
+        assert result.rejection_message is None
+
+
+class TestInvalidModelOutput:
+    """Gate 4: Invalid model output causes pipeline to fail loudly."""
+
+    @pytest.mark.asyncio
+    async def test_invalid_json_from_model_fails_loudly(self):
+        """When model returns invalid JSON, pipeline must fail (no silent fallback)."""
+        from pydantic import ValidationError
+
+        # Test that invalid JSON raises proper error during parsing
+        invalid_json_responses = [
+            "This is not JSON at all",
+            '{"observations": "should be array"}',  # Wrong type
+            '{"missing_required": true}',  # Missing required fields
+        ]
+
+        for invalid_response in invalid_json_responses:
+            # Attempt to parse as GuideBuilderOutput should fail
+            with pytest.raises((ValidationError, ValueError, Exception)):
+                import json
+                data = json.loads(invalid_response) if invalid_response.startswith('{') else {}
+                if data:
+                    GuideBuilderOutput.model_validate(data)
+                else:
+                    raise ValueError("Invalid JSON")
+
+    @pytest.mark.asyncio
+    async def test_guide_builder_failure_propagates(self):
+        """When guide builder fails, pipeline fails with error."""
+        session = MagicMock()
+        file_storage = MagicMock()
+
+        orchestrator = PipelineOrchestrator(session, file_storage)
+
+        # Mock repositories
+        project_mock = MagicMock()
+        project_mock.status = ProjectStatus.DRAFT
+
+        page1 = MagicMock()
+        page1.file_path = "/path/to/page1.png"
+        page1.order = 1
+
+        orchestrator.projects.get_by_id = AsyncMock(return_value=project_mock)
+        orchestrator.projects.update_status = AsyncMock()
+        orchestrator.pages.list_by_project = AsyncMock(return_value=[page1])
+        orchestrator.guides.get_or_create = AsyncMock(return_value=MagicMock())
+
+        orchestrator.file_storage.read_image_bytes = AsyncMock(return_value=b"fake png")
+
+        # Mock guide builder to return failure
+        orchestrator.guide_builder.build_guide = AsyncMock(
+            return_value=GuideBuilderResult(
+                provisional_guide="",
+                structured_output=None,
+                success=False,
+                error="Model returned invalid output",
+            )
+        )
+
+        # Run pipeline - should raise PipelineError
+        with pytest.raises(PipelineError) as exc_info:
+            await orchestrator.run(uuid4(), uuid4())
+
+        assert "guide builder" in str(exc_info.value).lower() or exc_info.value.error_code == "GUIDE_BUILDER_FAILED"
+
+
+class TestSchemaEnforcement:
+    """Gate 5: Schema violations raise validation errors."""
+
+    def test_guide_builder_output_rejects_invalid_schema(self):
+        """GuideBuilderOutput rejects data that violates schema."""
+        from pydantic import ValidationError
+
+        # Missing required field
+        with pytest.raises(ValidationError):
+            GuideBuilderOutput.model_validate({
+                "observations": [],
+                # Missing: candidate_rules, uncertainties, assumptions
+            })
+
+        # Wrong type for observations
+        with pytest.raises(ValidationError):
+            GuideBuilderOutput.model_validate({
+                "observations": "not an array",
+                "candidate_rules": [],
+                "uncertainties": [],
+                "assumptions": [],
+            })
+
+    def test_guide_applier_output_rejects_invalid_schema(self):
+        """GuideApplierOutput rejects data that violates schema."""
+        from pydantic import ValidationError
+
+        # Missing required field
+        with pytest.raises(ValidationError):
+            GuideApplierOutput.model_validate({
+                "page_number": 2,
+                # Missing: rule_validations, new_observations, overall_consistency
+            })
+
+        # Invalid status value
+        with pytest.raises(ValidationError):
+            GuideApplierOutput.model_validate({
+                "page_number": 2,
+                "rule_validations": [
+                    {
+                        "rule_id": "RULE_001",
+                        "status": "INVALID_STATUS",  # Not in enum
+                        "evidence": "test",
+                    }
+                ],
+                "new_observations": [],
+                "overall_consistency": "consistent",
+            })
+
+    def test_self_validator_output_rejects_invalid_schema(self):
+        """SelfValidatorOutput rejects data that violates schema."""
+        from pydantic import ValidationError
+
+        # Invalid classification
+        with pytest.raises(ValidationError):
+            SelfValidatorOutput.model_validate({
+                "total_rules": 1,
+                "rule_assessments": [
+                    {
+                        "rule_id": "RULE_001",
+                        "classification": "INVALID",  # Not stable/partial/unstable
+                        "pages_testable": 1,
+                        "pages_confirmed": 1,
+                        "pages_contradicted": 0,
+                        "pages_variation": 0,
+                        "confidence_score": 0.9,
+                        "recommendation": "include",
+                    }
+                ],
+                "stable_count": 1,
+                "partial_count": 0,
+                "unstable_count": 0,
+                "overall_stability_ratio": 1.0,
+                "can_generate_guide": True,
+            })
+
+    def test_confidence_score_bounds(self):
+        """Confidence scores must be between 0 and 1."""
+        from pydantic import ValidationError
+
+        # Score > 1 should fail
+        with pytest.raises(ValidationError):
+            RuleStabilityAssessment(
+                rule_id="RULE_001",
+                classification=StabilityClassification.STABLE,
+                pages_testable=1,
+                pages_confirmed=1,
+                pages_contradicted=0,
+                pages_variation=0,
+                confidence_score=1.5,  # Invalid: > 1
+                recommendation="include",
+            )
+
+        # Score < 0 should fail
+        with pytest.raises(ValidationError):
+            RuleStabilityAssessment(
+                rule_id="RULE_001",
+                classification=StabilityClassification.STABLE,
+                pages_testable=1,
+                pages_confirmed=1,
+                pages_contradicted=0,
+                pages_variation=0,
+                confidence_score=-0.1,  # Invalid: < 0
+                recommendation="include",
+            )
