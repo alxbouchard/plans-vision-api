@@ -105,7 +105,9 @@ curl -X POST http://localhost:8000/projects/{project_id}/pages \
   -H "X-Owner-Id: $OWNER_ID" \
   -F "file=@page2.png"
 
-# 3. Start analysis (requires 2+ pages)
+# 3. Start analysis (1+ pages)
+# Single page: provisional guide only
+# Multiple pages: full validation pipeline
 curl -X POST http://localhost:8000/projects/{project_id}/analyze \
   -H "X-Owner-Id: $OWNER_ID"
 
@@ -151,18 +153,72 @@ plans-vision-api/
 
 ## Pipeline Flow
 
+### Multi-Page Projects (2+ pages)
+
 1. **Guide Builder** analyzes page 1 to create a provisional visual guide
 2. **Guide Applier** tests the provisional guide against pages 2-N
 3. **Self-Validator** evaluates rule stability across all pages
 4. **Guide Consolidator** produces the final stable guide (or rejects if unstable)
 
-### Rule Stability
+### Single-Page Projects (Option B)
 
-- **Stable**: Confirmed on 80%+ of testable pages, no contradictions
+With only 1 page, cross-validation is impossible. The pipeline:
+- Generates a **provisional guide only**
+- Sets `stable = null`
+- Returns explicit rejection reason explaining the limitation
+
+```json
+{
+  "has_provisional": true,
+  "has_stable": false,
+  "rejection_message": "Cannot generate stable guide: Only 1 page provided..."
+}
+```
+
+## Rule Stability
+
+All agents produce **structured JSON outputs** with explicit classification:
+
+- **Stable**: Confirmed on 80%+ of testable pages, **zero contradictions**
 - **Partial**: Confirmed on 50-79%, or minor variations exist
-- **Unstable**: Contradicted on any page, or <50% confirmation
+- **Unstable**: **Any contradiction on any page**, or <50% confirmation
+
+### Contradiction Handling
+
+A single contradiction immediately marks a rule as **UNSTABLE**:
+- The rule is excluded from the final guide
+- If too many rules are unstable (<60% stable), no guide is generated
+- Rejection reason explicitly explains which rules failed and why
 
 Only **stable** rules appear in the final guide.
+
+## Structured Outputs
+
+All agent responses use Pydantic-validated JSON schemas:
+
+```python
+# Guide Builder Output
+{
+  "observations": [...],
+  "candidate_rules": [...],
+  "uncertainties": [...],
+  "assumptions": []  # MUST be empty
+}
+
+# Self-Validator Output
+{
+  "rule_assessments": [
+    {
+      "rule_id": "RULE_001",
+      "classification": "stable | partial | unstable",
+      "pages_confirmed": 3,
+      "pages_contradicted": 0
+    }
+  ],
+  "can_generate_guide": true,
+  "rejection_reason": null
+}
+```
 
 ## License
 
