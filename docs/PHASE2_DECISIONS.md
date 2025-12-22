@@ -35,3 +35,13 @@ These decisions remove ambiguity for the agent.
 - Viewer UI
 - Full wall vectorization
 - Measurement and dimensions
+
+## Identifier Reuse Across Object Types
+
+The same extracted numeric text may legitimately appear for different object types.
+
+Rules:
+- Do not merge or delete objects solely because their extracted numeric text matches.
+- Treat identifiers as scoped by object type and visual context.
+- Any disambiguation must be justified by guide-supported evidence.
+- If a query matches multiple objects, return ambiguous rather than choosing arbitrarily.
