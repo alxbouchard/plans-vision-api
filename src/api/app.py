@@ -5,6 +5,7 @@ from typing import AsyncGenerator
 
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from src.config import get_settings
@@ -44,6 +45,15 @@ def create_app() -> FastAPI:
         ),
         version="1.0.0",
         lifespan=lifespan,
+    )
+
+    # CORS middleware - allow all origins for local testing
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
     )
 
     # Include routers

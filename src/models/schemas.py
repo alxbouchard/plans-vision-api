@@ -253,6 +253,26 @@ class VisualGuideResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class UsageStatsSchema(BaseModel):
+    """
+    Token usage and cost statistics.
+
+    Example:
+        {
+            "input_tokens": 15420,
+            "output_tokens": 3200,
+            "total_tokens": 18620,
+            "cost_usd": 0.0523,
+            "requests": 4
+        }
+    """
+    input_tokens: int = Field(default=0, description="Total input tokens used")
+    output_tokens: int = Field(default=0, description="Total output tokens used")
+    total_tokens: int = Field(default=0, description="Total tokens (input + output)")
+    cost_usd: float = Field(default=0.0, description="Estimated cost in USD")
+    requests: int = Field(default=0, description="Number of API requests made")
+
+
 class PipelineStatusResponse(BaseModel):
     """
     Status of the analysis pipeline.
@@ -264,7 +284,8 @@ class PipelineStatusResponse(BaseModel):
             "current_step": "validation",
             "pages_processed": 2,
             "total_pages": 5,
-            "error_message": null
+            "error_message": null,
+            "usage": {"input_tokens": 10000, "cost_usd": 0.035}
         }
 
     Example (failed with rejection):
@@ -296,6 +317,10 @@ class PipelineStatusResponse(BaseModel):
     error_message: Optional[str] = Field(
         default=None,
         description="Error or rejection message if failed"
+    )
+    usage: Optional[UsageStatsSchema] = Field(
+        default=None,
+        description="Token usage and cost statistics for current pipeline run"
     )
 
 

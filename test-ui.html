@@ -1,0 +1,1002 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Plans Vision API - Test UI</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a2e;
+            color: #eee;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            text-align: center;
+            margin-bottom: 10px;
+            color: #00d4ff;
+        }
+
+        .subtitle {
+            text-align: center;
+            color: #888;
+            margin-bottom: 30px;
+        }
+
+        .config-bar {
+            background: #16213e;
+            padding: 15px 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            display: flex;
+            gap: 20px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .config-bar label {
+            color: #888;
+            font-size: 12px;
+            display: block;
+            margin-bottom: 5px;
+        }
+
+        .config-bar input {
+            background: #0f0f23;
+            border: 1px solid #333;
+            color: #fff;
+            padding: 8px 12px;
+            border-radius: 5px;
+            font-family: monospace;
+        }
+
+        .config-bar input:focus {
+            outline: none;
+            border-color: #00d4ff;
+        }
+
+        #apiUrl { width: 250px; }
+        #ownerId { width: 320px; }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-left: auto;
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #666;
+        }
+
+        .status-dot.connected { background: #00ff88; }
+        .status-dot.error { background: #ff4444; }
+
+        .main-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        @media (max-width: 900px) {
+            .main-grid { grid-template-columns: 1fr; }
+        }
+
+        .panel {
+            background: #16213e;
+            border-radius: 10px;
+            padding: 20px;
+        }
+
+        .panel h2 {
+            color: #00d4ff;
+            font-size: 16px;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #333;
+        }
+
+        .btn {
+            background: #00d4ff;
+            color: #000;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+
+        .btn:hover {
+            background: #00a8cc;
+            transform: translateY(-1px);
+        }
+
+        .btn:disabled {
+            background: #444;
+            color: #888;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn-secondary {
+            background: #333;
+            color: #fff;
+        }
+
+        .btn-secondary:hover {
+            background: #444;
+        }
+
+        .btn-danger {
+            background: #ff4444;
+            color: #fff;
+        }
+
+        .btn-success {
+            background: #00ff88;
+            color: #000;
+        }
+
+        .btn-row {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+
+        .project-item {
+            background: #0f0f23;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            cursor: pointer;
+            border: 2px solid transparent;
+            transition: all 0.2s;
+        }
+
+        .project-item:hover {
+            border-color: #333;
+        }
+
+        .project-item.selected {
+            border-color: #00d4ff;
+        }
+
+        .project-id {
+            font-family: monospace;
+            font-size: 11px;
+            color: #888;
+        }
+
+        .project-status {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            margin-left: 10px;
+        }
+
+        .status-draft { background: #333; color: #888; }
+        .status-processing { background: #ff9800; color: #000; }
+        .status-validated { background: #00ff88; color: #000; }
+        .status-failed { background: #ff4444; color: #fff; }
+
+        .upload-zone {
+            border: 2px dashed #333;
+            border-radius: 10px;
+            padding: 30px;
+            text-align: center;
+            margin-bottom: 15px;
+            transition: all 0.2s;
+        }
+
+        .upload-zone:hover, .upload-zone.dragover {
+            border-color: #00d4ff;
+            background: rgba(0, 212, 255, 0.05);
+        }
+
+        .upload-zone input {
+            display: none;
+        }
+
+        .upload-icon {
+            font-size: 40px;
+            margin-bottom: 10px;
+        }
+
+        .pages-list {
+            max-height: 150px;
+            overflow-y: auto;
+        }
+
+        .page-item {
+            background: #0f0f23;
+            padding: 8px 12px;
+            border-radius: 5px;
+            margin-bottom: 5px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .page-order {
+            background: #00d4ff;
+            color: #000;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-weight: 600;
+            font-size: 12px;
+        }
+
+        .log-container {
+            background: #0f0f23;
+            border-radius: 8px;
+            padding: 15px;
+            height: 200px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+
+        .log-entry {
+            margin-bottom: 5px;
+            padding: 5px;
+            border-radius: 3px;
+        }
+
+        .log-info { color: #00d4ff; }
+        .log-success { color: #00ff88; }
+        .log-error { color: #ff4444; }
+        .log-warn { color: #ff9800; }
+
+        .log-time {
+            color: #666;
+            margin-right: 10px;
+        }
+
+        .guide-container {
+            background: #0f0f23;
+            border-radius: 8px;
+            padding: 15px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .guide-section {
+            margin-bottom: 20px;
+        }
+
+        .guide-section h3 {
+            color: #00d4ff;
+            font-size: 14px;
+            margin-bottom: 10px;
+        }
+
+        .guide-content {
+            background: #16213e;
+            padding: 15px;
+            border-radius: 5px;
+            white-space: pre-wrap;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .confidence-report {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .stat-box {
+            background: #0f0f23;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: 700;
+            color: #00d4ff;
+        }
+
+        .stat-label {
+            font-size: 11px;
+            color: #888;
+            margin-top: 5px;
+        }
+
+        .stat-box.stable .stat-value { color: #00ff88; }
+        .stat-box.partial .stat-value { color: #ff9800; }
+        .stat-box.unstable .stat-value { color: #ff4444; }
+
+        .empty-state {
+            text-align: center;
+            color: #666;
+            padding: 40px;
+        }
+
+        .loader {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 2px solid #333;
+            border-top-color: #00d4ff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 10px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .full-width {
+            grid-column: 1 / -1;
+        }
+
+        .json-viewer {
+            background: #0a0a15;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 11px;
+            white-space: pre-wrap;
+            max-height: 300px;
+            overflow: auto;
+        }
+
+        .json-key { color: #00d4ff; }
+        .json-string { color: #00ff88; }
+        .json-number { color: #ff9800; }
+        .json-boolean { color: #ff44ff; }
+        .json-null { color: #888; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Plans Vision API</h1>
+        <p class="subtitle">Interface de test pour l'API de vision des plans de construction</p>
+
+        <div class="config-bar">
+            <div>
+                <label>API URL</label>
+                <input type="text" id="apiUrl" value="http://localhost:8000">
+            </div>
+            <div>
+                <label>Owner ID (X-Owner-Id)</label>
+                <input type="text" id="ownerId" value="11111111-1111-1111-1111-111111111111">
+            </div>
+            <div class="status-indicator">
+                <div class="status-dot" id="statusDot"></div>
+                <span id="statusText">Non connecte</span>
+            </div>
+            <button class="btn btn-secondary" onclick="checkHealth()">Tester connexion</button>
+        </div>
+
+        <div class="main-grid">
+            <!-- Projects Panel -->
+            <div class="panel">
+                <h2>Projets</h2>
+                <div class="btn-row">
+                    <button class="btn" onclick="createProject()">+ Nouveau projet</button>
+                    <button class="btn btn-secondary" onclick="loadProjects()">Rafraichir</button>
+                </div>
+                <div id="projectsList">
+                    <div class="empty-state">Cliquez sur "Nouveau projet" pour commencer</div>
+                </div>
+            </div>
+
+            <!-- Upload Panel -->
+            <div class="panel">
+                <h2>Upload de pages</h2>
+                <div class="upload-zone" id="uploadZone" onclick="document.getElementById('fileInput').click()">
+                    <div class="upload-icon">📄</div>
+                    <p>Glissez des fichiers PNG ici ou cliquez pour selectionner</p>
+                    <p style="color: #666; font-size: 12px; margin-top: 10px;">PNG uniquement</p>
+                    <input type="file" id="fileInput" accept="image/png" multiple onchange="handleFileSelect(event)">
+                </div>
+                <div class="pages-list" id="pagesList"></div>
+            </div>
+
+            <!-- Analysis Panel -->
+            <div class="panel">
+                <h2>Analyse</h2>
+                <div class="btn-row">
+                    <button class="btn btn-success" id="analyzeBtn" onclick="startAnalysis()" disabled>
+                        Lancer l'analyse
+                    </button>
+                    <button class="btn btn-secondary" id="statusBtn" onclick="checkStatus()" disabled>
+                        Verifier statut
+                    </button>
+                </div>
+                <div id="analysisStatus">
+                    <div class="empty-state">Selectionnez un projet et uploadez des pages</div>
+                </div>
+            </div>
+
+            <!-- Log Panel -->
+            <div class="panel">
+                <h2>Journal</h2>
+                <div class="log-container" id="logContainer"></div>
+            </div>
+
+            <!-- Guide Panel -->
+            <div class="panel full-width">
+                <h2>Guide Visuel</h2>
+                <div class="btn-row">
+                    <button class="btn" id="guideBtn" onclick="getGuide()" disabled>
+                        Recuperer le guide
+                    </button>
+                </div>
+                <div id="guideContainer">
+                    <div class="empty-state">Le guide apparaitra ici apres l'analyse</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // State
+        let currentProjectId = null;
+        let pollingInterval = null;
+
+        // Helpers
+        function getApiUrl() {
+            return document.getElementById('apiUrl').value.replace(/\/$/, '');
+        }
+
+        function getOwnerId() {
+            return document.getElementById('ownerId').value;
+        }
+
+        function getHeaders() {
+            return {
+                'X-Owner-Id': getOwnerId()
+            };
+        }
+
+        function log(message, type = 'info') {
+            const container = document.getElementById('logContainer');
+            const time = new Date().toLocaleTimeString();
+            const entry = document.createElement('div');
+            entry.className = `log-entry log-${type}`;
+            entry.innerHTML = `<span class="log-time">${time}</span>${message}`;
+            container.insertBefore(entry, container.firstChild);
+        }
+
+        function formatJson(obj) {
+            const json = JSON.stringify(obj, null, 2);
+            return json
+                .replace(/"([^"]+)":/g, '<span class="json-key">"$1"</span>:')
+                .replace(/: "([^"]*)"/g, ': <span class="json-string">"$1"</span>')
+                .replace(/: (\d+\.?\d*)/g, ': <span class="json-number">$1</span>')
+                .replace(/: (true|false)/g, ': <span class="json-boolean">$1</span>')
+                .replace(/: null/g, ': <span class="json-null">null</span>');
+        }
+
+        // API Calls
+        async function checkHealth() {
+            try {
+                const res = await fetch(`${getApiUrl()}/health`);
+                const data = await res.json();
+
+                const dot = document.getElementById('statusDot');
+                const text = document.getElementById('statusText');
+
+                if (data.status === 'healthy') {
+                    dot.className = 'status-dot connected';
+                    text.textContent = 'Connecte';
+                    log('API connectee avec succes', 'success');
+                    loadProjects();
+                } else {
+                    throw new Error('API non healthy');
+                }
+            } catch (e) {
+                document.getElementById('statusDot').className = 'status-dot error';
+                document.getElementById('statusText').textContent = 'Erreur';
+                log(`Erreur de connexion: ${e.message}`, 'error');
+            }
+        }
+
+        async function createProject() {
+            try {
+                log('Creation d\'un nouveau projet...');
+                const res = await fetch(`${getApiUrl()}/projects`, {
+                    method: 'POST',
+                    headers: getHeaders()
+                });
+
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+                const project = await res.json();
+                log(`Projet cree: ${project.id}`, 'success');
+                loadProjects();
+                selectProject(project.id);
+            } catch (e) {
+                log(`Erreur creation projet: ${e.message}`, 'error');
+            }
+        }
+
+        async function loadProjects() {
+            try {
+                const res = await fetch(`${getApiUrl()}/projects`, {
+                    headers: getHeaders()
+                });
+
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+                const projects = await res.json();
+                renderProjects(projects);
+            } catch (e) {
+                log(`Erreur chargement projets: ${e.message}`, 'error');
+            }
+        }
+
+        function renderProjects(projects) {
+            const container = document.getElementById('projectsList');
+
+            if (projects.length === 0) {
+                container.innerHTML = '<div class="empty-state">Aucun projet</div>';
+                return;
+            }
+
+            container.innerHTML = projects.map(p => `
+                <div class="project-item ${p.id === currentProjectId ? 'selected' : ''}"
+                     onclick="selectProject('${p.id}')">
+                    <div>
+                        <span class="project-id">${p.id}</span>
+                        <span class="project-status status-${p.status}">${p.status.toUpperCase()}</span>
+                    </div>
+                    <div style="color: #888; font-size: 12px; margin-top: 5px;">
+                        ${p.page_count} page(s)
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        async function selectProject(projectId) {
+            currentProjectId = projectId;
+            log(`Projet selectionne: ${projectId}`);
+
+            // Update UI
+            document.querySelectorAll('.project-item').forEach(el => {
+                el.classList.toggle('selected', el.querySelector('.project-id').textContent === projectId);
+            });
+
+            document.getElementById('analyzeBtn').disabled = false;
+            document.getElementById('statusBtn').disabled = false;
+            document.getElementById('guideBtn').disabled = false;
+
+            // Load pages
+            await loadPages();
+            await checkStatus();
+        }
+
+        async function loadPages() {
+            if (!currentProjectId) return;
+
+            try {
+                const res = await fetch(`${getApiUrl()}/projects/${currentProjectId}/pages`, {
+                    headers: getHeaders()
+                });
+
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+                const pages = await res.json();
+                renderPages(pages);
+            } catch (e) {
+                log(`Erreur chargement pages: ${e.message}`, 'error');
+            }
+        }
+
+        function renderPages(pages) {
+            const container = document.getElementById('pagesList');
+
+            if (pages.length === 0) {
+                container.innerHTML = '';
+                return;
+            }
+
+            container.innerHTML = pages.map(p => `
+                <div class="page-item">
+                    <span>Page</span>
+                    <span class="page-order">${p.order}</span>
+                </div>
+            `).join('');
+        }
+
+        // File Upload
+        const uploadZone = document.getElementById('uploadZone');
+
+        uploadZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadZone.classList.add('dragover');
+        });
+
+        uploadZone.addEventListener('dragleave', () => {
+            uploadZone.classList.remove('dragover');
+        });
+
+        uploadZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadZone.classList.remove('dragover');
+            handleFiles(e.dataTransfer.files);
+        });
+
+        function handleFileSelect(event) {
+            handleFiles(event.target.files);
+        }
+
+        async function handleFiles(files) {
+            if (!currentProjectId) {
+                log('Selectionnez d\'abord un projet', 'warn');
+                return;
+            }
+
+            for (const file of files) {
+                if (!file.type.includes('png')) {
+                    log(`${file.name}: PNG uniquement`, 'error');
+                    continue;
+                }
+
+                await uploadFile(file);
+            }
+
+            await loadPages();
+        }
+
+        async function uploadFile(file) {
+            try {
+                log(`Upload: ${file.name}...`);
+
+                const formData = new FormData();
+                formData.append('file', file);
+
+                const res = await fetch(`${getApiUrl()}/projects/${currentProjectId}/pages`, {
+                    method: 'POST',
+                    headers: { 'X-Owner-Id': getOwnerId() },
+                    body: formData
+                });
+
+                if (!res.ok) {
+                    const err = await res.json();
+                    throw new Error(err.detail || `HTTP ${res.status}`);
+                }
+
+                const page = await res.json();
+                log(`Page ${page.order} uploadee avec succes`, 'success');
+            } catch (e) {
+                log(`Erreur upload: ${e.message}`, 'error');
+            }
+        }
+
+        // Analysis
+        async function startAnalysis() {
+            if (!currentProjectId) return;
+
+            try {
+                log('Demarrage de l\'analyse...');
+
+                const res = await fetch(`${getApiUrl()}/projects/${currentProjectId}/analyze`, {
+                    method: 'POST',
+                    headers: getHeaders()
+                });
+
+                if (!res.ok) {
+                    const err = await res.json();
+                    throw new Error(err.detail || `HTTP ${res.status}`);
+                }
+
+                const data = await res.json();
+                log(`Analyse demarree: ${data.pages_to_process} page(s)`, 'success');
+
+                // Start polling
+                startPolling();
+            } catch (e) {
+                log(`Erreur analyse: ${e.message}`, 'error');
+            }
+        }
+
+        function startPolling() {
+            if (pollingInterval) clearInterval(pollingInterval);
+
+            pollingInterval = setInterval(async () => {
+                await checkStatus();
+
+                const statusContainer = document.getElementById('analysisStatus');
+                if (statusContainer.dataset.status === 'validated' ||
+                    statusContainer.dataset.status === 'failed') {
+                    clearInterval(pollingInterval);
+                    pollingInterval = null;
+                    await loadProjects();
+                    await getGuide();
+                }
+            }, 2000);
+        }
+
+        async function checkStatus() {
+            if (!currentProjectId) return;
+
+            try {
+                const res = await fetch(`${getApiUrl()}/projects/${currentProjectId}/status`, {
+                    headers: getHeaders()
+                });
+
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+                const data = await res.json();
+                renderStatus(data);
+            } catch (e) {
+                log(`Erreur statut: ${e.message}`, 'error');
+            }
+        }
+
+        function renderStatus(data) {
+            const container = document.getElementById('analysisStatus');
+            container.dataset.status = data.status;
+
+            let statusColor = '#888';
+            let statusIcon = '⏸️';
+            if (data.status === 'processing') {
+                statusColor = '#ff9800';
+                statusIcon = '⚙️';
+            }
+            if (data.status === 'validated') {
+                statusColor = '#00ff88';
+                statusIcon = '✅';
+            }
+            if (data.status === 'failed') {
+                statusColor = '#ff4444';
+                statusIcon = '❌';
+            }
+
+            // Map step names to detailed descriptions
+            const stepDetails = {
+                'guide_builder': {
+                    name: '1. Guide Builder',
+                    desc: 'GPT-5.2-pro analyse la page 1 pour creer le guide provisoire...',
+                    icon: '🔍'
+                },
+                'validation': {
+                    name: '2. Guide Applier',
+                    desc: 'GPT-5.2 valide le guide sur les pages suivantes...',
+                    icon: '✓'
+                },
+                'self_validator': {
+                    name: '3. Self-Validator',
+                    desc: 'Evaluation de la stabilite des regles...',
+                    icon: '📊'
+                },
+                'consolidation': {
+                    name: '4. Guide Consolidator',
+                    desc: 'Production du guide final...',
+                    icon: '📝'
+                }
+            };
+
+            const step = stepDetails[data.current_step] || null;
+
+            // Build progress bar
+            const steps = ['guide_builder', 'validation', 'self_validator', 'consolidation'];
+            const currentStepIndex = steps.indexOf(data.current_step);
+
+            let progressBar = '';
+            if (data.status === 'processing') {
+                progressBar = `
+                    <div style="display: flex; gap: 5px; margin: 15px 0; justify-content: center;">
+                        ${steps.map((s, i) => `
+                            <div style="
+                                width: 60px;
+                                height: 6px;
+                                border-radius: 3px;
+                                background: ${i < currentStepIndex ? '#00ff88' : i === currentStepIndex ? '#ff9800' : '#333'};
+                                ${i === currentStepIndex ? 'animation: pulse 1s infinite;' : ''}
+                            "></div>
+                        `).join('')}
+                    </div>
+                `;
+            }
+
+            // Build usage stats display
+            let usageHtml = '';
+            if (data.usage && data.usage.requests > 0) {
+                usageHtml = `
+                    <div style="background: #0a0a15; border: 1px solid #333; padding: 12px; border-radius: 8px; margin-top: 15px;">
+                        <div style="color: #00d4ff; font-weight: 600; font-size: 12px; margin-bottom: 8px;">
+                            💰 Utilisation API
+                        </div>
+                        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; font-size: 11px;">
+                            <div style="background: #16213e; padding: 8px; border-radius: 4px;">
+                                <div style="color: #888;">Requetes</div>
+                                <div style="color: #fff; font-weight: 600;">${data.usage.requests}</div>
+                            </div>
+                            <div style="background: #16213e; padding: 8px; border-radius: 4px;">
+                                <div style="color: #888;">Tokens</div>
+                                <div style="color: #fff; font-weight: 600;">${data.usage.total_tokens.toLocaleString()}</div>
+                            </div>
+                            <div style="background: #16213e; padding: 8px; border-radius: 4px;">
+                                <div style="color: #888;">Input</div>
+                                <div style="color: #00ff88; font-weight: 600;">${data.usage.input_tokens.toLocaleString()}</div>
+                            </div>
+                            <div style="background: #16213e; padding: 8px; border-radius: 4px;">
+                                <div style="color: #888;">Output</div>
+                                <div style="color: #ff9800; font-weight: 600;">${data.usage.output_tokens.toLocaleString()}</div>
+                            </div>
+                        </div>
+                        <div style="margin-top: 10px; text-align: center; padding: 8px; background: linear-gradient(90deg, #00d4ff22, #00ff8822); border-radius: 4px;">
+                            <span style="color: #888; font-size: 11px;">Cout estime:</span>
+                            <span style="color: #00ff88; font-weight: 700; font-size: 16px; margin-left: 8px;">
+                                $${data.usage.cost_usd.toFixed(4)}
+                            </span>
+                        </div>
+                    </div>
+                `;
+            }
+
+            container.innerHTML = `
+                <style>
+                    @keyframes pulse {
+                        0%, 100% { opacity: 1; }
+                        50% { opacity: 0.5; }
+                    }
+                </style>
+                <div style="text-align: center; padding: 20px;">
+                    <div style="font-size: 40px; margin-bottom: 10px;">${statusIcon}</div>
+                    <div style="font-size: 24px; color: ${statusColor}; font-weight: 700;">
+                        ${data.status.toUpperCase()}
+                    </div>
+                    ${progressBar}
+                    ${step ? `
+                        <div style="background: #0f0f23; padding: 15px; border-radius: 8px; margin-top: 15px;">
+                            <div style="color: #00d4ff; font-weight: 600; font-size: 14px;">
+                                ${step.icon} ${step.name}
+                            </div>
+                            <div style="color: #888; font-size: 12px; margin-top: 5px;">
+                                ${step.desc}
+                            </div>
+                        </div>
+                    ` : ''}
+                    ${usageHtml}
+                    <div style="color: #666; margin-top: 15px; font-size: 12px;">
+                        ${data.total_pages} page(s) dans le projet
+                    </div>
+                    ${data.error_message ? `
+                        <div style="background: rgba(255,68,68,0.1); border: 1px solid #ff4444; padding: 10px; border-radius: 8px; margin-top: 15px; text-align: left;">
+                            <div style="color: #ff4444; font-weight: 600; font-size: 12px;">Erreur:</div>
+                            <div style="color: #ccc; font-size: 11px; margin-top: 5px;">${data.error_message}</div>
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+        }
+
+        // Guide
+        async function getGuide() {
+            if (!currentProjectId) return;
+
+            try {
+                log('Recuperation du guide...');
+
+                const res = await fetch(`${getApiUrl()}/projects/${currentProjectId}/guide`, {
+                    headers: getHeaders()
+                });
+
+                if (res.status === 404) {
+                    document.getElementById('guideContainer').innerHTML =
+                        '<div class="empty-state">Aucun guide disponible</div>';
+                    return;
+                }
+
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+                const data = await res.json();
+                renderGuide(data);
+                log('Guide recupere avec succes', 'success');
+            } catch (e) {
+                log(`Erreur guide: ${e.message}`, 'error');
+            }
+        }
+
+        function renderGuide(data) {
+            const container = document.getElementById('guideContainer');
+
+            let html = '';
+
+            // Stats
+            if (data.confidence_report) {
+                const cr = data.confidence_report;
+                html += `
+                    <div class="confidence-report">
+                        <div class="stat-box">
+                            <div class="stat-value">${cr.total_rules}</div>
+                            <div class="stat-label">Total Rules</div>
+                        </div>
+                        <div class="stat-box stable">
+                            <div class="stat-value">${cr.stable_count}</div>
+                            <div class="stat-label">Stable</div>
+                        </div>
+                        <div class="stat-box partial">
+                            <div class="stat-value">${cr.partial_count}</div>
+                            <div class="stat-label">Partial</div>
+                        </div>
+                        <div class="stat-box unstable">
+                            <div class="stat-value">${cr.unstable_count}</div>
+                            <div class="stat-label">Unstable</div>
+                        </div>
+                    </div>
+                `;
+
+                if (cr.rejection_reason) {
+                    html += `
+                        <div style="background: rgba(255,68,68,0.1); border: 1px solid #ff4444; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
+                            <strong style="color: #ff4444;">Raison du rejet:</strong>
+                            <p style="margin-top: 5px; color: #ccc;">${cr.rejection_reason}</p>
+                        </div>
+                    `;
+                }
+            }
+
+            // Provisional Guide
+            if (data.has_provisional && data.provisional) {
+                html += `
+                    <div class="guide-section">
+                        <h3>Guide Provisoire (Page 1)</h3>
+                        <div class="guide-content">${escapeHtml(data.provisional)}</div>
+                    </div>
+                `;
+            }
+
+            // Stable Guide
+            if (data.has_stable && data.stable) {
+                html += `
+                    <div class="guide-section">
+                        <h3 style="color: #00ff88;">Guide Stable Valide</h3>
+                        <div class="guide-content">${escapeHtml(data.stable)}</div>
+                    </div>
+                `;
+            }
+
+            // Raw JSON
+            html += `
+                <div class="guide-section">
+                    <h3>Reponse JSON complete</h3>
+                    <div class="json-viewer">${formatJson(data)}</div>
+                </div>
+            `;
+
+            container.innerHTML = html;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Init
+        checkHealth();
+    </script>
+</body>
+</html>

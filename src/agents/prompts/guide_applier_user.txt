@@ -6,25 +6,25 @@ PROVISIONAL GUIDE:
 You MUST respond with a valid JSON object following this exact structure:
 
 ```json
-{
+{{
   "page_number": 2,
   "rule_validations": [
-    {
+    {{
       "rule_id": "RULE_001",
       "status": "confirmed | contradicted | not_testable | variation",
       "evidence": "Specific evidence from this page",
       "details": "Optional additional details"
-    }
+    }}
   ],
   "new_observations": [
-    {
+    {{
       "description": "New pattern not in the guide",
       "location": "Where on the page",
       "suggested_rule": "Optional suggested rule"
-    }
+    }}
   ],
   "overall_consistency": "consistent | mostly_consistent | inconsistent"
-}
+}}
 ```
 
 CRITICAL RULES:

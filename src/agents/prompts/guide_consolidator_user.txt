@@ -11,32 +11,32 @@ MINIMUM STABLE RATIO REQUIRED: {min_stable_ratio}%
 You MUST respond with a valid JSON object following this exact structure:
 
 ```json
-{
+{{
   "guide_generated": true,
   "stable_rules": [
-    {
+    {{
       "id": "RULE_001",
       "description": "Clear rule description",
       "applies_when": "When/where this rule applies",
       "evidence": "Evidence from validated pages",
       "stability_score": 0.95
-    }
+    }}
   ],
   "partial_observations": [
     "Observation noted but not validated enough to be a rule"
   ],
   "excluded_rules": [
-    {
+    {{
       "id": "RULE_003",
       "reason": "Contradicted on page 3"
-    }
+    }}
   ],
   "limitations": [
     "Known limitation of this guide"
   ],
   "confidence_level": "high | medium | low",
   "rejection_reason": null
-}
+}}
 ```
 
 CRITICAL RULES:
@@ -50,7 +50,7 @@ CRITICAL RULES:
 REFUSAL CASE:
 If you cannot generate a guide, respond with:
 ```json
-{
+{{
   "guide_generated": false,
   "stable_rules": [],
   "partial_observations": [...],
@@ -58,7 +58,7 @@ If you cannot generate a guide, respond with:
   "limitations": [],
   "confidence_level": "low",
   "rejection_reason": "Specific explanation of why guide cannot be generated and what is needed"
-}
+}}
 ```
 
 Respond ONLY with the JSON object, no other text.

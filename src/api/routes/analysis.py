@@ -12,10 +12,12 @@ from src.models.schemas import (
     AnalysisStartResponse,
     ErrorResponse,
     PipelineStatusResponse,
+    UsageStatsSchema,
     VisualGuideResponse,
 )
 from src.pipeline import PipelineOrchestrator, PipelineError
 from src.storage import ProjectRepository, VisualGuideRepository, FileStorage
+from src.agents.client import get_current_usage
 
 logger = get_logger(__name__)
 
@@ -192,6 +194,18 @@ async def get_analysis_status(
         if guide and guide.confidence_report and guide.confidence_report.rejection_reason:
             error_message = guide.confidence_report.rejection_reason
 
+    # Get current usage stats
+    usage_stats = None
+    if project.status == ProjectStatus.PROCESSING:
+        usage = get_current_usage()
+        usage_stats = UsageStatsSchema(
+            input_tokens=usage.input_tokens,
+            output_tokens=usage.output_tokens,
+            total_tokens=usage.total_tokens,
+            cost_usd=round(usage.cost_usd, 4),
+            requests=usage.requests,
+        )
+
     return PipelineStatusResponse(
         project_id=project_id,
         status=project.status,
@@ -199,6 +213,7 @@ async def get_analysis_status(
         pages_processed=page_count if project.status != ProjectStatus.PROCESSING else 0,
         total_pages=page_count,
         error_message=error_message,
+        usage=usage_stats,
     )
 
 

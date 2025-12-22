@@ -3,29 +3,29 @@ Analyze this construction plan page to discover the visual conventions used in t
 You MUST respond with a valid JSON object following this exact structure:
 
 ```json
-{
+{{
   "observations": [
-    {
+    {{
       "id": "OBS_001",
       "category": "LINE_STYLE | SYMBOL | TEXT | HATCHING | COLOR | LAYOUT",
       "description": "Factual description of what you see",
       "location": "Where on the page",
       "confidence": "high | medium | low"
-    }
+    }}
   ],
   "candidate_rules": [
-    {
+    {{
       "id": "RULE_001",
       "description": "The rule statement",
       "based_on": ["OBS_001", "OBS_002"],
       "confidence": "high | medium | low"
-    }
+    }}
   ],
   "uncertainties": [
     "List of things that are unclear or need validation"
   ],
   "assumptions": []
-}
+}}
 ```
 
 CRITICAL RULES:

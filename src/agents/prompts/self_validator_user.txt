@@ -9,10 +9,10 @@ VALIDATION REPORTS FROM PAGES:
 You MUST respond with a valid JSON object following this exact structure:
 
 ```json
-{
+{{
   "total_rules": 5,
   "rule_assessments": [
-    {
+    {{
       "rule_id": "RULE_001",
       "classification": "stable | partial | unstable",
       "pages_testable": 3,
@@ -21,7 +21,7 @@ You MUST respond with a valid JSON object following this exact structure:
       "pages_variation": 0,
       "confidence_score": 0.95,
       "recommendation": "include | exclude | needs_more_data"
-    }
+    }}
   ],
   "stable_count": 3,
   "partial_count": 1,
@@ -29,7 +29,7 @@ You MUST respond with a valid JSON object following this exact structure:
   "overall_stability_ratio": 0.6,
   "can_generate_guide": true,
   "rejection_reason": null
-}
+}}
 ```
 
 CLASSIFICATION RULES - NO AMBIGUITY ALLOWED:

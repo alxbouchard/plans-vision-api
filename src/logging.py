@@ -1,5 +1,6 @@
 """Structured logging configuration."""
 
+import logging
 import sys
 from datetime import datetime
 from typing import Any
@@ -35,11 +36,12 @@ def configure_logging() -> None:
         # JSON output for production
         processors.append(structlog.processors.JSONRenderer())
 
+    # Map log level string to logging constant
+    log_level = getattr(logging, settings.log_level.upper(), logging.INFO)
+
     structlog.configure(
         processors=processors,
-        wrapper_class=structlog.make_filtering_bound_logger(
-            getattr(structlog, settings.log_level.upper(), structlog.INFO)
-        ),
+        wrapper_class=structlog.make_filtering_bound_logger(log_level),
         context_class=dict,
         logger_factory=structlog.PrintLoggerFactory(),
         cache_logger_on_first_use=True,
