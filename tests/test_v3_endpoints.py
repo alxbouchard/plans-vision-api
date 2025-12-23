@@ -550,3 +550,50 @@ class TestPDFFirstWorkflow:
         assert analyze_resp.status_code == 202, (
             f"Expected 202, got {analyze_resp.status_code}: {analyze_resp.json()}"
         )
+
+    @pytest.mark.asyncio
+    async def test_page_file_paths_exist_on_disk(self, client, project_id, test_db):
+        """Verify PageTable.file_path points to existing files after build-mapping."""
+        import os
+        from src.config import get_settings
+
+        # Upload a 3-page PDF
+        pdf_content = create_pdf_with_pages(3)
+        pdf_resp = await client.post(
+            f"/v3/projects/{project_id}/pdf",
+            files={"file": ("test.pdf", io.BytesIO(pdf_content), "application/pdf")},
+        )
+        pdf_id = pdf_resp.json()["pdf_id"]
+
+        # Build mapping
+        await client.post(f"/v3/projects/{project_id}/pdf/{pdf_id}/build-mapping")
+
+        # Get pages from database
+        override_get_db, engine = test_db
+        from sqlalchemy import select
+        from src.storage.database import PageTable
+
+        async for session in override_get_db():
+            result = await session.execute(
+                select(PageTable).where(PageTable.project_id == project_id)
+            )
+            pages = result.scalars().all()
+
+            assert len(pages) == 3, f"Expected 3 pages, got {len(pages)}"
+
+            settings = get_settings()
+            for page in pages:
+                # file_path should be relative (e.g., "{project_id}/png/page_1.png")
+                assert not page.file_path.startswith("./"), (
+                    f"file_path should be relative, got: {page.file_path}"
+                )
+                assert not page.file_path.startswith("/"), (
+                    f"file_path should be relative, got: {page.file_path}"
+                )
+
+                # File should exist when combined with upload_dir
+                abs_path = os.path.join(settings.upload_dir, page.file_path)
+                assert os.path.exists(abs_path), (
+                    f"PNG file not found at {abs_path}"
+                )
+            break

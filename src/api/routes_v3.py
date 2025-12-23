@@ -200,8 +200,11 @@ async def build_mapping(
 
     # Rasterize PDF pages to PNG using PyMuPDF
     settings = get_settings()
-    png_dir = os.path.join(settings.upload_dir, str(project_id), "png")
-    os.makedirs(png_dir, exist_ok=True)
+    # Absolute path for file I/O
+    png_dir_abs = os.path.join(settings.upload_dir, str(project_id), "png")
+    os.makedirs(png_dir_abs, exist_ok=True)
+    # Relative path for PageTable.file_path (matches FileStorage convention)
+    png_dir_rel = os.path.join(str(project_id), "png")
 
     # Open PDF for rasterization
     pdf_doc = fitz.open(pdf.file_path)
@@ -229,12 +232,14 @@ async def build_mapping(
         png_width = pix.width
         png_height = pix.height
 
-        # Save PNG
-        png_path = os.path.join(png_dir, f"page_{page_num}.png")
-        pix.save(png_path)
+        # Save PNG (use absolute path for file I/O)
+        png_path_abs = os.path.join(png_dir_abs, f"page_{page_num}.png")
+        pix.save(png_path_abs)
+        # Relative path for database storage (matches FileStorage convention)
+        png_path_rel = os.path.join(png_dir_rel, f"page_{page_num}.png")
 
         # Get PNG file stats for PageTable
-        with open(png_path, "rb") as f:
+        with open(png_path_abs, "rb") as f:
             png_bytes = f.read()
         byte_size = len(png_bytes)
         image_sha256 = hashlib.sha256(png_bytes).hexdigest()
@@ -245,7 +250,7 @@ async def build_mapping(
         # Affine matrix [a, b, c, d, e, f] for: x' = ax + cy + e, y' = bx + dy + f
         matrix = [scale_x, 0, 0, scale_y, 0, 0]
 
-        # Create PageMappingTable entry
+        # Create PageMappingTable entry (stores absolute path for V3 render)
         page_mapping = PageMappingTable(
             id=str(uuid4()),
             mapping_version_id=str(mapping_version_id),
@@ -259,16 +264,17 @@ async def build_mapping(
             mediabox_json=json.dumps(mediabox),
             cropbox_json=json.dumps(cropbox),
             transform_matrix_json=json.dumps(matrix),
-            png_file_path=png_path,
+            png_file_path=png_path_abs,
         )
         session.add(page_mapping)
 
         # Create PageTable entry for Phase 1 analyze compatibility
+        # Uses relative path (matches FileStorage convention for read_image_bytes)
         page_entry = PageTable(
             id=str(uuid4()),
             project_id=str(project_id),
             order=page_num,
-            file_path=png_path,
+            file_path=png_path_rel,
             image_width=png_width,
             image_height=png_height,
             image_sha256=image_sha256,
