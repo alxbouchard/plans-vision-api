@@ -1,0 +1,832 @@
+<!--
+UI Reference Demo (PDF-first)
+
+This file demonstrates the full plans-vision-api pipeline:
+1. Create project
+2. Upload PDF master
+3. Build mapping (PDF → PNG coordinates)
+4. Run Phase 1 analyze (visual guide)
+5. Run Phase 2 extract (objects)
+6. Run Phase 2 query (room_number=203)
+7. Render annotated PDF
+
+Rules:
+- Uses X-API-Key auth (official)
+- No hardcoded image dimensions
+- Overlays use API-returned bbox and image metadata
+- Ambiguity is shown explicitly
+- No recognition logic in UI
+
+See docs in ui_reference/docs for requirements.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>plans-vision-api - UI Reference Demo (PDF-first)</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background: #f5f5f5;
+      color: #333;
+    }
+    h1 { margin: 0 0 10px 0; }
+    h2 { margin: 20px 0 10px 0; font-size: 1.2em; border-bottom: 1px solid #ccc; padding-bottom: 5px; }
+    h3 { margin: 15px 0 8px 0; font-size: 1em; }
+
+    .container { max-width: 1200px; margin: 0 auto; }
+
+    .auth-section {
+      background: #fff;
+      padding: 15px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .auth-section label { display: block; margin-bottom: 5px; font-weight: 600; }
+    .auth-section input {
+      width: 100%;
+      max-width: 400px;
+      padding: 8px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+
+    .pipeline {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+      gap: 20px;
+    }
+
+    .step {
+      background: #fff;
+      padding: 15px;
+      border-radius: 8px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .step.disabled { opacity: 0.5; pointer-events: none; }
+    .step.active { border-left: 4px solid #007bff; }
+    .step.complete { border-left: 4px solid #28a745; }
+    .step.error { border-left: 4px solid #dc3545; }
+
+    button {
+      background: #007bff;
+      color: #fff;
+      border: none;
+      padding: 10px 16px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      margin-right: 8px;
+      margin-top: 8px;
+    }
+    button:hover { background: #0056b3; }
+    button:disabled { background: #ccc; cursor: not-allowed; }
+    button.secondary { background: #6c757d; }
+    button.secondary:hover { background: #545b62; }
+
+    input[type="file"] { margin: 10px 0; }
+    input[type="text"] {
+      padding: 8px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-size: 14px;
+      width: 150px;
+    }
+
+    .status {
+      margin-top: 10px;
+      padding: 10px;
+      border-radius: 4px;
+      font-size: 13px;
+      background: #e9ecef;
+    }
+    .status.processing { background: #fff3cd; }
+    .status.success { background: #d4edda; }
+    .status.error { background: #f8d7da; }
+
+    .output {
+      margin-top: 10px;
+      padding: 10px;
+      background: #f8f9fa;
+      border: 1px solid #dee2e6;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 12px;
+      max-height: 200px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    .matches-list {
+      margin-top: 10px;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+    .match-item {
+      padding: 10px;
+      margin: 5px 0;
+      background: #f8f9fa;
+      border: 1px solid #dee2e6;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .match-item:hover { background: #e9ecef; }
+    .match-item.selected { background: #cce5ff; border-color: #007bff; }
+    .match-item .label { font-weight: 600; }
+    .match-item .meta { font-size: 12px; color: #666; margin-top: 5px; }
+
+    .ambiguous-warning {
+      background: #fff3cd;
+      border: 1px solid #ffc107;
+      padding: 10px;
+      border-radius: 4px;
+      margin-bottom: 10px;
+    }
+
+    .preview-section {
+      margin-top: 20px;
+      background: #fff;
+      padding: 15px;
+      border-radius: 8px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+
+    .canvas-container {
+      position: relative;
+      display: inline-block;
+      margin-top: 10px;
+    }
+    .canvas-container img {
+      display: block;
+      max-width: 100%;
+      height: auto;
+    }
+    .canvas-container canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      pointer-events: none;
+    }
+
+    .trace-info {
+      font-size: 11px;
+      color: #666;
+      margin-top: 10px;
+      padding: 8px;
+      background: #f8f9fa;
+      border-radius: 4px;
+    }
+    .trace-info strong { color: #333; }
+
+    a { color: #007bff; }
+    a:hover { text-decoration: none; }
+
+    .step-number {
+      display: inline-block;
+      width: 24px;
+      height: 24px;
+      background: #007bff;
+      color: #fff;
+      border-radius: 50%;
+      text-align: center;
+      line-height: 24px;
+      font-size: 12px;
+      margin-right: 8px;
+    }
+    .step.complete .step-number { background: #28a745; }
+    .step.error .step-number { background: #dc3545; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>plans-vision-api - UI Reference Demo</h1>
+    <p>PDF-first workflow: Upload PDF master, analyze, extract, query, render annotated PDF.</p>
+
+    <!-- Auth Section -->
+    <div class="auth-section">
+      <label for="apiKey">X-API-Key (required)</label>
+      <input type="text" id="apiKey" placeholder="pv_your-api-key" />
+      <p style="font-size: 12px; color: #666; margin-top: 5px;">
+        All API calls use X-API-Key header for authentication.
+      </p>
+    </div>
+
+    <div class="pipeline">
+      <!-- Step 1: Create Project -->
+      <div class="step" id="step1">
+        <h2><span class="step-number">1</span>Create Project</h2>
+        <button onclick="createProject()">Create Project</button>
+        <div class="status" id="step1Status"></div>
+        <div class="output" id="step1Output" style="display:none;"></div>
+      </div>
+
+      <!-- Step 2: Upload PDF Master -->
+      <div class="step disabled" id="step2">
+        <h2><span class="step-number">2</span>Upload PDF Master</h2>
+        <input type="file" id="pdfFile" accept=".pdf" />
+        <button onclick="uploadPdf()">Upload PDF</button>
+        <div class="status" id="step2Status"></div>
+        <div class="output" id="step2Output" style="display:none;"></div>
+      </div>
+
+      <!-- Step 3: Build Mapping -->
+      <div class="step disabled" id="step3">
+        <h2><span class="step-number">3</span>Build Mapping</h2>
+        <p style="font-size: 13px; color: #666;">Converts PDF pages to PNG and computes coordinate transforms.</p>
+        <button onclick="buildMapping()">Build Mapping</button>
+        <button class="secondary" onclick="checkMappingStatus()">Check Status</button>
+        <div class="status" id="step3Status"></div>
+        <div class="output" id="step3Output" style="display:none;"></div>
+      </div>
+
+      <!-- Step 4: Analyze (V1 Guide) -->
+      <div class="step disabled" id="step4">
+        <h2><span class="step-number">4</span>Analyze (V1 Guide)</h2>
+        <p style="font-size: 13px; color: #666;">Build visual guide from plan conventions.</p>
+        <button onclick="startAnalyze()">Start Analyze</button>
+        <button class="secondary" onclick="checkAnalyzeStatus()">Check Status</button>
+        <div class="status" id="step4Status"></div>
+        <div class="output" id="step4Output" style="display:none;"></div>
+      </div>
+
+      <!-- Step 5: Extract (V2) -->
+      <div class="step disabled" id="step5">
+        <h2><span class="step-number">5</span>Extract Objects (V2)</h2>
+        <p style="font-size: 13px; color: #666;">Extract rooms, doors, schedules using the guide.</p>
+        <button onclick="startExtract()">Start Extract</button>
+        <button class="secondary" onclick="checkExtractStatus()">Check Status</button>
+        <div class="status" id="step5Status"></div>
+        <div class="output" id="step5Output" style="display:none;"></div>
+      </div>
+
+      <!-- Step 6: Query (V2) -->
+      <div class="step disabled" id="step6">
+        <h2><span class="step-number">6</span>Query Objects (V2)</h2>
+        <p style="font-size: 13px; color: #666;">Query by room number, room name, or object type.</p>
+        <div style="margin: 10px 0;">
+          <label style="font-size: 13px;">room_number:</label>
+          <input type="text" id="queryRoomNumber" value="203" />
+          <button onclick="runQuery()">Query</button>
+        </div>
+        <div class="status" id="step6Status"></div>
+        <div id="queryResults"></div>
+      </div>
+
+      <!-- Step 7: Render PDF (V3) -->
+      <div class="step disabled" id="step7">
+        <h2><span class="step-number">7</span>Render Annotated PDF (V3)</h2>
+        <p style="font-size: 13px; color: #666;">Create annotated PDF with selected objects highlighted.</p>
+        <button onclick="renderPdf()">Render PDF</button>
+        <button class="secondary" onclick="checkRenderStatus()">Check Status</button>
+        <div class="status" id="step7Status"></div>
+        <div class="output" id="step7Output" style="display:none;"></div>
+        <div id="renderResult"></div>
+      </div>
+    </div>
+
+    <!-- Preview Section -->
+    <div class="preview-section" id="previewSection" style="display:none;">
+      <h2>Page Preview with Overlay</h2>
+      <p style="font-size: 13px; color: #666;">
+        Select a match above to see the bbox overlay. Image dimensions from API, no hardcoding.
+      </p>
+      <div id="pageSelector"></div>
+      <div class="canvas-container" id="canvasContainer">
+        <img id="previewImage" />
+        <canvas id="overlayCanvas"></canvas>
+      </div>
+      <div class="trace-info" id="traceInfo" style="display:none;"></div>
+    </div>
+  </div>
+
+  <script>
+    // State
+    let state = {
+      projectId: null,
+      pdfId: null,
+      pdfFingerprint: null,
+      mappingVersionId: null,
+      mappingJobId: null,
+      guideVersionId: null,
+      extractionRunId: null,
+      renderJobId: null,
+      matches: [],
+      selectedMatch: null,
+      pages: {} // page_number -> { image_width, image_height, image_url }
+    };
+
+    // API base URL
+    const API_BASE = 'http://localhost:8000';
+
+    // Get API key
+    function getApiKey() {
+      return document.getElementById('apiKey').value.trim();
+    }
+
+    // API request helper
+    async function apiRequest(method, path, body = null) {
+      const apiKey = getApiKey();
+      if (!apiKey) {
+        throw new Error('API key is required');
+      }
+
+      const options = {
+        method,
+        headers: {
+          'X-API-Key': apiKey
+        }
+      };
+
+      if (body instanceof FormData) {
+        options.body = body;
+      } else if (body) {
+        options.headers['Content-Type'] = 'application/json';
+        options.body = JSON.stringify(body);
+      }
+
+      const response = await fetch(`${API_BASE}${path}`, options);
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || data.error_code || `HTTP ${response.status}`);
+      }
+
+      return data;
+    }
+
+    // Update step status
+    function updateStep(stepId, status, message, output = null) {
+      const step = document.getElementById(stepId);
+      const statusEl = document.getElementById(`${stepId}Status`);
+      const outputEl = document.getElementById(`${stepId}Output`);
+
+      step.classList.remove('active', 'complete', 'error');
+      statusEl.classList.remove('processing', 'success', 'error');
+
+      if (status === 'processing') {
+        step.classList.add('active');
+        statusEl.classList.add('processing');
+      } else if (status === 'success') {
+        step.classList.add('complete');
+        statusEl.classList.add('success');
+      } else if (status === 'error') {
+        step.classList.add('error');
+        statusEl.classList.add('error');
+      }
+
+      statusEl.textContent = message;
+
+      if (output && outputEl) {
+        outputEl.style.display = 'block';
+        outputEl.textContent = typeof output === 'string' ? output : JSON.stringify(output, null, 2);
+      }
+    }
+
+    // Enable step
+    function enableStep(stepId) {
+      document.getElementById(stepId).classList.remove('disabled');
+    }
+
+    // Step 1: Create Project
+    async function createProject() {
+      try {
+        updateStep('step1', 'processing', 'Creating project...');
+        const data = await apiRequest('POST', '/projects');
+        state.projectId = data.id;
+        updateStep('step1', 'success', `Project created: ${data.id}`, data);
+        enableStep('step2');
+      } catch (err) {
+        updateStep('step1', 'error', `Error: ${err.message}`);
+      }
+    }
+
+    // Step 2: Upload PDF
+    async function uploadPdf() {
+      const fileInput = document.getElementById('pdfFile');
+      if (!fileInput.files.length) {
+        updateStep('step2', 'error', 'Please select a PDF file');
+        return;
+      }
+
+      try {
+        updateStep('step2', 'processing', 'Uploading PDF...');
+        const formData = new FormData();
+        formData.append('file', fileInput.files[0]);
+
+        const data = await apiRequest('POST', `/v3/projects/${state.projectId}/pdf`, formData);
+        state.pdfId = data.pdf_id;
+        state.pdfFingerprint = data.fingerprint;
+        updateStep('step2', 'success', `PDF uploaded: ${data.page_count} pages, fingerprint: ${data.fingerprint.substring(0, 16)}...`, data);
+        enableStep('step3');
+      } catch (err) {
+        updateStep('step2', 'error', `Error: ${err.message}`);
+      }
+    }
+
+    // Step 3: Build Mapping
+    async function buildMapping() {
+      try {
+        updateStep('step3', 'processing', 'Starting mapping build...');
+        const data = await apiRequest('POST', `/v3/projects/${state.projectId}/pdf/${state.pdfId}/build-mapping`);
+        state.mappingJobId = data.mapping_job_id;
+        updateStep('step3', 'processing', `Mapping job started: ${data.mapping_job_id}`, data);
+
+        // Start polling
+        pollMappingStatus();
+      } catch (err) {
+        updateStep('step3', 'error', `Error: ${err.message}`);
+      }
+    }
+
+    async function checkMappingStatus() {
+      try {
+        const data = await apiRequest('GET', `/v3/projects/${state.projectId}/pdf/${state.pdfId}/mapping/status`);
+
+        if (data.overall_status === 'completed') {
+          state.mappingVersionId = data.mapping_version_id;
+          updateStep('step3', 'success', `Mapping complete: ${data.mapping_version_id}`, data);
+          enableStep('step4');
+
+          // Fetch mapping metadata for page info
+          await fetchMappingMetadata();
+        } else if (data.overall_status === 'failed') {
+          updateStep('step3', 'error', `Mapping failed: ${data.errors.join(', ')}`, data);
+        } else {
+          updateStep('step3', 'processing', `Status: ${data.overall_status}, step: ${data.current_step}`, data);
+        }
+
+        return data;
+      } catch (err) {
+        updateStep('step3', 'error', `Error: ${err.message}`);
+        return null;
+      }
+    }
+
+    async function pollMappingStatus() {
+      const data = await checkMappingStatus();
+      if (data && data.overall_status !== 'completed' && data.overall_status !== 'failed') {
+        setTimeout(pollMappingStatus, 2000);
+      }
+    }
+
+    async function fetchMappingMetadata() {
+      try {
+        const data = await apiRequest('GET', `/v3/projects/${state.projectId}/pdf/${state.pdfId}/mapping`);
+        // Store page dimensions (from PNG rasterization)
+        data.pages.forEach(page => {
+          state.pages[page.page_number] = {
+            image_width: page.png_width,
+            image_height: page.png_height,
+            image_url: null // Will be set when we get overlay
+          };
+        });
+      } catch (err) {
+        console.warn('Could not fetch mapping metadata:', err);
+      }
+    }
+
+    // Step 4: Analyze (V1)
+    async function startAnalyze() {
+      try {
+        updateStep('step4', 'processing', 'Starting analysis...');
+        const data = await apiRequest('POST', `/projects/${state.projectId}/analyze`);
+        updateStep('step4', 'processing', 'Analysis started, polling status...', data);
+        pollAnalyzeStatus();
+      } catch (err) {
+        updateStep('step4', 'error', `Error: ${err.message}`);
+      }
+    }
+
+    async function checkAnalyzeStatus() {
+      try {
+        const data = await apiRequest('GET', `/projects/${state.projectId}/status`);
+
+        if (data.status === 'completed') {
+          updateStep('step4', 'success', 'Analysis complete', data);
+          enableStep('step5');
+
+          // Try to get guide
+          try {
+            const guide = await apiRequest('GET', `/projects/${state.projectId}/guide`);
+            state.guideVersionId = guide.id;
+            document.getElementById('step4Output').style.display = 'block';
+            document.getElementById('step4Output').textContent = JSON.stringify(guide, null, 2);
+          } catch (e) {
+            // Guide might not exist if rejected
+          }
+        } else if (data.status === 'failed') {
+          updateStep('step4', 'error', `Analysis failed: ${data.error?.message || 'Unknown error'}`, data);
+        } else {
+          updateStep('step4', 'processing', `Status: ${data.status}, step: ${data.current_step}`, data);
+        }
+
+        return data;
+      } catch (err) {
+        updateStep('step4', 'error', `Error: ${err.message}`);
+        return null;
+      }
+    }
+
+    async function pollAnalyzeStatus() {
+      const data = await checkAnalyzeStatus();
+      if (data && data.status !== 'completed' && data.status !== 'failed') {
+        setTimeout(pollAnalyzeStatus, 2000);
+      }
+    }
+
+    // Step 5: Extract (V2)
+    async function startExtract() {
+      try {
+        updateStep('step5', 'processing', 'Starting extraction...');
+        const data = await apiRequest('POST', `/v2/projects/${state.projectId}/extract`);
+        updateStep('step5', 'processing', 'Extraction started, polling status...', data);
+        pollExtractStatus();
+      } catch (err) {
+        updateStep('step5', 'error', `Error: ${err.message}`);
+      }
+    }
+
+    async function checkExtractStatus() {
+      try {
+        const data = await apiRequest('GET', `/v2/projects/${state.projectId}/extract/status`);
+
+        if (data.status === 'completed') {
+          state.extractionRunId = data.extraction_run_id;
+          updateStep('step5', 'success', `Extraction complete: ${data.objects_count || 0} objects`, data);
+          enableStep('step6');
+        } else if (data.status === 'failed') {
+          updateStep('step5', 'error', `Extraction failed: ${data.error?.message || 'Unknown error'}`, data);
+        } else {
+          updateStep('step5', 'processing', `Status: ${data.status}, step: ${data.current_step}`, data);
+        }
+
+        return data;
+      } catch (err) {
+        updateStep('step5', 'error', `Error: ${err.message}`);
+        return null;
+      }
+    }
+
+    async function pollExtractStatus() {
+      const data = await checkExtractStatus();
+      if (data && data.status !== 'completed' && data.status !== 'failed') {
+        setTimeout(pollExtractStatus, 2000);
+      }
+    }
+
+    // Step 6: Query (V2)
+    async function runQuery() {
+      const roomNumber = document.getElementById('queryRoomNumber').value.trim();
+      if (!roomNumber) {
+        updateStep('step6', 'error', 'Please enter a room number');
+        return;
+      }
+
+      try {
+        updateStep('step6', 'processing', `Querying room_number=${roomNumber}...`);
+        const data = await apiRequest('GET', `/v2/projects/${state.projectId}/query?room_number=${encodeURIComponent(roomNumber)}`);
+
+        state.matches = data.matches || [];
+        state.selectedMatch = null;
+
+        renderQueryResults(data);
+
+        if (state.matches.length > 0) {
+          updateStep('step6', 'success', `Found ${state.matches.length} match(es)`);
+          enableStep('step7');
+          document.getElementById('previewSection').style.display = 'block';
+        } else {
+          updateStep('step6', 'success', 'No matches found');
+        }
+      } catch (err) {
+        updateStep('step6', 'error', `Error: ${err.message}`);
+      }
+    }
+
+    function renderQueryResults(data) {
+      const container = document.getElementById('queryResults');
+      let html = '';
+
+      // Show ambiguity warning if applicable
+      if (data.ambiguous) {
+        html += `<div class="ambiguous-warning">
+          <strong>Ambiguous query:</strong> Multiple matches found.
+          The API does not pick arbitrarily. Review all candidates below.
+        </div>`;
+      }
+
+      if (data.matches && data.matches.length > 0) {
+        html += '<div class="matches-list">';
+        data.matches.forEach((match, index) => {
+          const bbox = match.geometry?.bbox || match.geometry_png?.bbox || [0,0,0,0];
+          html += `<div class="match-item" onclick="selectMatch(${index})" id="match-${index}">
+            <div class="label">${match.label || match.object_id}</div>
+            <div class="meta">
+              Type: ${match.type} |
+              Page: ${match.page_number} |
+              Confidence: ${(match.confidence * 100).toFixed(0)}% (${match.confidence_level})
+            </div>
+            <div class="meta">
+              PNG bbox: [${bbox.join(', ')}]
+            </div>
+          </div>`;
+        });
+        html += '</div>';
+      }
+
+      container.innerHTML = html;
+    }
+
+    async function selectMatch(index) {
+      // Update selection UI
+      document.querySelectorAll('.match-item').forEach(el => el.classList.remove('selected'));
+      document.getElementById(`match-${index}`).classList.add('selected');
+
+      state.selectedMatch = state.matches[index];
+
+      // Load page overlay and draw bbox
+      await loadPageOverlay(state.selectedMatch.page_number, state.selectedMatch);
+    }
+
+    async function loadPageOverlay(pageNumber, match) {
+      try {
+        // Fetch overlay data which includes image dimensions
+        const data = await apiRequest('GET', `/v2/projects/${state.projectId}/pages/${match.page_id || pageNumber}/overlay`);
+
+        const imageWidth = data.image?.width;
+        const imageHeight = data.image?.height;
+        const imageUrl = data.image?.url;
+
+        if (!imageWidth || !imageHeight) {
+          console.warn('No image dimensions in overlay response');
+          return;
+        }
+
+        // Store page info
+        state.pages[pageNumber] = { image_width: imageWidth, image_height: imageHeight, image_url: imageUrl };
+
+        // Load image and draw overlay
+        const img = document.getElementById('previewImage');
+        const canvas = document.getElementById('overlayCanvas');
+
+        if (imageUrl) {
+          img.onload = () => {
+            // Set canvas size to match displayed image
+            canvas.width = img.clientWidth;
+            canvas.height = img.clientHeight;
+
+            // Draw bbox overlay
+            drawBboxOverlay(canvas, match, imageWidth, imageHeight, img.clientWidth, img.clientHeight);
+          };
+          img.src = imageUrl;
+        } else {
+          // No image URL, just show trace info
+          canvas.width = 0;
+          canvas.height = 0;
+        }
+
+        // Show trace info
+        showTraceInfo(match.trace);
+
+      } catch (err) {
+        console.error('Error loading overlay:', err);
+      }
+    }
+
+    function drawBboxOverlay(canvas, match, imgNatWidth, imgNatHeight, displayWidth, displayHeight) {
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      const bbox = match.geometry?.bbox || match.geometry_png?.bbox;
+      if (!bbox || bbox.length < 4) return;
+
+      // Scale bbox from image natural size to display size
+      const scaleX = displayWidth / imgNatWidth;
+      const scaleY = displayHeight / imgNatHeight;
+
+      const [x, y, w, h] = bbox;
+      const displayX = x * scaleX;
+      const displayY = y * scaleY;
+      const displayW = w * scaleX;
+      const displayH = h * scaleY;
+
+      // Draw rectangle
+      ctx.strokeStyle = '#ff0000';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(displayX, displayY, displayW, displayH);
+
+      // Draw label
+      ctx.fillStyle = 'rgba(255, 0, 0, 0.8)';
+      ctx.font = '12px sans-serif';
+      const label = match.label || match.object_id;
+      const textWidth = ctx.measureText(label).width;
+      ctx.fillRect(displayX, displayY - 18, textWidth + 8, 18);
+      ctx.fillStyle = '#fff';
+      ctx.fillText(label, displayX + 4, displayY - 5);
+    }
+
+    function showTraceInfo(trace) {
+      const el = document.getElementById('traceInfo');
+      if (!trace) {
+        el.style.display = 'none';
+        return;
+      }
+
+      el.style.display = 'block';
+      el.innerHTML = `
+        <strong>Trace:</strong><br>
+        pdf_id: ${trace.pdf_id || 'N/A'}<br>
+        pdf_fingerprint: ${(trace.pdf_fingerprint || 'N/A').substring(0, 16)}...<br>
+        mapping_version_id: ${trace.mapping_version_id || 'N/A'}<br>
+        extraction_run_id: ${trace.extraction_run_id || 'N/A'}
+      `;
+    }
+
+    // Step 7: Render PDF (V3)
+    async function renderPdf() {
+      if (!state.selectedMatch && state.matches.length === 0) {
+        updateStep('step7', 'error', 'No objects selected to render');
+        return;
+      }
+
+      const objectIds = state.selectedMatch
+        ? [state.selectedMatch.object_id]
+        : state.matches.map(m => m.object_id);
+
+      try {
+        updateStep('step7', 'processing', 'Starting render...');
+        const data = await apiRequest('POST', `/v3/projects/${state.projectId}/render/pdf`, {
+          pdf_id: state.pdfId,
+          mapping_version_id: state.mappingVersionId,
+          objects: objectIds,
+          style: {
+            mode: 'highlight',
+            include_labels: true,
+            min_confidence_level: 'medium'
+          }
+        });
+
+        state.renderJobId = data.render_job_id;
+        updateStep('step7', 'processing', `Render job started: ${data.render_job_id}`, data);
+        pollRenderStatus();
+      } catch (err) {
+        updateStep('step7', 'error', `Error: ${err.message}`);
+      }
+    }
+
+    async function checkRenderStatus() {
+      try {
+        const data = await apiRequest('GET', `/v3/projects/${state.projectId}/render/pdf/${state.renderJobId}`);
+
+        if (data.status === 'completed') {
+          updateStep('step7', 'success', 'Render complete!', data);
+          showRenderResult(data);
+        } else if (data.status === 'failed') {
+          updateStep('step7', 'error', `Render failed: ${data.error?.message || 'Unknown error'}`, data);
+        } else {
+          updateStep('step7', 'processing', `Status: ${data.status}`, data);
+        }
+
+        return data;
+      } catch (err) {
+        updateStep('step7', 'error', `Error: ${err.message}`);
+        return null;
+      }
+    }
+
+    async function pollRenderStatus() {
+      const data = await checkRenderStatus();
+      if (data && data.status !== 'completed' && data.status !== 'failed') {
+        setTimeout(pollRenderStatus, 2000);
+      }
+    }
+
+    function showRenderResult(data) {
+      const container = document.getElementById('renderResult');
+      if (data.output_pdf_url) {
+        container.innerHTML = `
+          <div style="margin-top: 15px; padding: 15px; background: #d4edda; border-radius: 4px;">
+            <strong>Annotated PDF Ready!</strong><br>
+            <a href="${data.output_pdf_url}" target="_blank" style="font-size: 16px;">
+              Open Annotated PDF
+            </a>
+          </div>
+          <div class="trace-info" style="margin-top: 10px;">
+            <strong>Render Trace:</strong><br>
+            pdf_fingerprint: ${data.trace?.pdf_fingerprint?.substring(0, 16) || 'N/A'}...<br>
+            mapping_version_id: ${data.trace?.mapping_version_id || 'N/A'}<br>
+            extraction_run_id: ${data.trace?.extraction_run_id || 'N/A'}
+          </div>
+        `;
+      }
+    }
+  </script>
+</body>
+</html>
