@@ -496,7 +496,8 @@ See docs in ui_reference/docs for requirements.
     async function startAnalyze() {
       try {
         updateStep('step4', 'processing', 'Starting analysis...');
-        const data = await apiRequest('POST', `/projects/${state.projectId}/analyze`);
+        // Send empty body to ensure Content-Type is set properly
+        const data = await apiRequest('POST', `/projects/${state.projectId}/analyze`, {});
         updateStep('step4', 'processing', 'Analysis started, polling status...', data);
         pollAnalyzeStatus();
       } catch (err) {
@@ -508,7 +509,7 @@ See docs in ui_reference/docs for requirements.
       try {
         const data = await apiRequest('GET', `/projects/${state.projectId}/status`);
 
-        if (data.status === 'completed') {
+        if (data.status === 'validated') {
           updateStep('step4', 'success', 'Analysis complete', data);
           enableStep('step5');
 
@@ -536,7 +537,7 @@ See docs in ui_reference/docs for requirements.
 
     async function pollAnalyzeStatus() {
       const data = await checkAnalyzeStatus();
-      if (data && data.status !== 'completed' && data.status !== 'failed') {
+      if (data && data.status !== 'validated' && data.status !== 'failed') {
         setTimeout(pollAnalyzeStatus, 2000);
       }
     }
