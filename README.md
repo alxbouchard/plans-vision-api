@@ -397,7 +397,7 @@ python -m src.main
 ## Testing
 
 ```bash
-# Run all tests (123 tests)
+# Run all tests (137+ tests)
 pytest -v
 
 # With coverage
@@ -444,7 +444,7 @@ plans-vision-api/
 │   ├── pipeline/         # Multi-agent orchestrator
 │   ├── storage/          # Database & file storage
 │   └── main.py           # Entry point
-├── tests/                # Test suite (123 tests)
+├── tests/                # Test suite (137+ tests)
 ├── docs/                 # Documentation
 │   ├── API_CONTRACT_v1.md
 │   ├── API_CONTRACT_v2.md
