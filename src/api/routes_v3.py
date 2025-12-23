@@ -9,11 +9,14 @@ Key principles:
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import os
 from datetime import datetime
 from typing import Optional, List
 from uuid import UUID, uuid4
+
+import fitz  # PyMuPDF
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import JSONResponse
@@ -109,11 +112,13 @@ async def upload_pdf(
     # Compute fingerprint
     fingerprint = hashlib.sha256(content).hexdigest()
 
-    # Count pages (simple heuristic - count /Page objects)
-    # For production, use PyMuPDF or similar
-    page_count = content.count(b"/Type /Page") or content.count(b"/Type/Page")
-    if page_count == 0:
-        page_count = 1  # Fallback
+    # Count pages using PyMuPDF (single source of truth)
+    try:
+        pdf_doc = fitz.open(stream=content, filetype="pdf")
+        page_count = pdf_doc.page_count
+        pdf_doc.close()
+    except Exception as e:
+        return _error_response(400, "INVALID_PDF", f"Cannot read PDF: {str(e)}")
 
     # Save PDF to disk
     settings = get_settings()

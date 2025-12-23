@@ -96,14 +96,26 @@ async def project_id(client):
     return resp.json()["id"]
 
 
+def create_pdf_with_pages(num_pages: int) -> bytes:
+    """Create a real PDF with specified number of pages using PyMuPDF."""
+    import fitz
+    doc = fitz.open()
+    for i in range(num_pages):
+        page = doc.new_page(width=612, height=792)  # Letter size
+        page.insert_text((72, 72), f"Page {i + 1}", fontsize=24)
+    pdf_bytes = doc.tobytes()
+    doc.close()
+    return pdf_bytes
+
+
 class TestPDFUpload:
     """Tests for POST /v3/projects/{project_id}/pdf"""
 
     @pytest.mark.asyncio
     async def test_upload_valid_pdf(self, client, project_id):
         """Test uploading a valid PDF file."""
-        # Create minimal valid PDF content
-        pdf_content = b"%PDF-1.4\n1 0 obj\n<< /Type /Page >>\nendobj\ntrailer\n%%EOF"
+        # Create a real 1-page PDF using PyMuPDF
+        pdf_content = create_pdf_with_pages(1)
 
         resp = await client.post(
             f"/v3/projects/{project_id}/pdf",
@@ -116,7 +128,22 @@ class TestPDFUpload:
         assert data["project_id"] == project_id
         assert "pdf_id" in data
         assert "fingerprint" in data
-        assert data["page_count"] >= 1
+        assert data["page_count"] == 1
+
+    @pytest.mark.asyncio
+    async def test_upload_pdf_page_count_exact(self, client, project_id):
+        """Test that page_count is computed correctly using PyMuPDF."""
+        # Create a 3-page PDF
+        pdf_content = create_pdf_with_pages(3)
+
+        resp = await client.post(
+            f"/v3/projects/{project_id}/pdf",
+            files={"file": ("test_3pages.pdf", io.BytesIO(pdf_content), "application/pdf")},
+        )
+
+        assert resp.status_code == 201
+        data = resp.json()
+        assert data["page_count"] == 3, f"Expected 3 pages, got {data['page_count']}"
 
     @pytest.mark.asyncio
     async def test_upload_invalid_pdf(self, client, project_id):
@@ -150,7 +177,7 @@ class TestBuildMapping:
     @pytest.fixture
     async def pdf_id(self, client, project_id):
         """Upload a PDF and return its ID."""
-        pdf_content = b"%PDF-1.4\n1 0 obj\n<< /Type /Page >>\nendobj\ntrailer\n%%EOF"
+        pdf_content = create_pdf_with_pages(1)
         resp = await client.post(
             f"/v3/projects/{project_id}/pdf",
             files={"file": ("test.pdf", io.BytesIO(pdf_content), "application/pdf")},
@@ -224,7 +251,7 @@ class TestGetMapping:
     @pytest.fixture
     async def completed_mapping(self, client, project_id):
         """Create completed mapping."""
-        pdf_content = b"%PDF-1.4\n1 0 obj\n<< /Type /Page >>\nendobj\ntrailer\n%%EOF"
+        pdf_content = create_pdf_with_pages(1)
         pdf_resp = await client.post(
             f"/v3/projects/{project_id}/pdf",
             files={"file": ("test.pdf", io.BytesIO(pdf_content), "application/pdf")},
@@ -262,7 +289,7 @@ class TestGetMapping:
     @pytest.mark.asyncio
     async def test_get_mapping_without_build_returns_409(self, client, project_id):
         """Gate 2: Mapping required refusal."""
-        pdf_content = b"%PDF-1.4\n1 0 obj\n<< /Type /Page >>\nendobj\ntrailer\n%%EOF"
+        pdf_content = create_pdf_with_pages(1)
         pdf_resp = await client.post(
             f"/v3/projects/{project_id}/pdf",
             files={"file": ("test.pdf", io.BytesIO(pdf_content), "application/pdf")},
@@ -282,7 +309,7 @@ class TestRenderPDF:
     @pytest.fixture
     async def render_setup(self, client, project_id):
         """Upload PDF and complete mapping."""
-        pdf_content = b"%PDF-1.4\n1 0 obj\n<< /Type /Page >>\nendobj\ntrailer\n%%EOF"
+        pdf_content = create_pdf_with_pages(1)
         pdf_resp = await client.post(
             f"/v3/projects/{project_id}/pdf",
             files={"file": ("test.pdf", io.BytesIO(pdf_content), "application/pdf")},
@@ -342,7 +369,7 @@ class TestRenderPDF:
     @pytest.mark.asyncio
     async def test_render_mapping_required(self, client, project_id):
         """Gate 2: Mapping required refusal."""
-        pdf_content = b"%PDF-1.4\n1 0 obj\n<< /Type /Page >>\nendobj\ntrailer\n%%EOF"
+        pdf_content = create_pdf_with_pages(1)
         pdf_resp = await client.post(
             f"/v3/projects/{project_id}/pdf",
             files={"file": ("test.pdf", io.BytesIO(pdf_content), "application/pdf")},
@@ -391,7 +418,7 @@ class TestRenderStatus:
     async def test_get_render_status(self, client, project_id):
         """Test getting render job status."""
         # Setup
-        pdf_content = b"%PDF-1.4\n1 0 obj\n<< /Type /Page >>\nendobj\ntrailer\n%%EOF"
+        pdf_content = create_pdf_with_pages(1)
         pdf_resp = await client.post(
             f"/v3/projects/{project_id}/pdf",
             files={"file": ("test.pdf", io.BytesIO(pdf_content), "application/pdf")},
@@ -432,7 +459,7 @@ class TestRenderAnnotations:
     @pytest.mark.asyncio
     async def test_render_annotations(self, client, project_id):
         """Test exporting annotations."""
-        pdf_content = b"%PDF-1.4\n1 0 obj\n<< /Type /Page >>\nendobj\ntrailer\n%%EOF"
+        pdf_content = create_pdf_with_pages(1)
         pdf_resp = await client.post(
             f"/v3/projects/{project_id}/pdf",
             files={"file": ("test.pdf", io.BytesIO(pdf_content), "application/pdf")},
