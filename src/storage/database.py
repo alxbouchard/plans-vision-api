@@ -88,6 +88,80 @@ class VisualGuideTable(Base):
     project: Mapped["ProjectTable"] = relationship("ProjectTable", back_populates="visual_guide")
 
 
+# =============================================================================
+# V3 Tables: PDF Master, Mapping, Render
+# =============================================================================
+
+class PDFMasterTable(Base):
+    """SQLAlchemy model for PDF master documents."""
+    __tablename__ = "pdf_masters"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    project_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        index=True
+    )
+    fingerprint: Mapped[str] = mapped_column(String(64), index=True)  # SHA256
+    page_count: Mapped[int] = mapped_column(Integer)
+    file_path: Mapped[str] = mapped_column(String(512))
+    stored_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class MappingJobTable(Base):
+    """SQLAlchemy model for mapping jobs (PDF to PNG conversion)."""
+    __tablename__ = "mapping_jobs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    project_id: Mapped[str] = mapped_column(String(36), index=True)
+    pdf_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("pdf_masters.id", ondelete="CASCADE"),
+        index=True
+    )
+    status: Mapped[str] = mapped_column(String(20), default="pending")  # pending|running|completed|failed
+    current_step: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    errors_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    mapping_version_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class PageMappingTable(Base):
+    """SQLAlchemy model for per-page mapping data."""
+    __tablename__ = "page_mappings"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    mapping_version_id: Mapped[str] = mapped_column(String(36), index=True)
+    pdf_id: Mapped[str] = mapped_column(String(36), index=True)
+    page_number: Mapped[int] = mapped_column(Integer)
+    png_width: Mapped[int] = mapped_column(Integer)
+    png_height: Mapped[int] = mapped_column(Integer)
+    pdf_width_pt: Mapped[float] = mapped_column(Integer)  # stored as int, converted to float
+    pdf_height_pt: Mapped[float] = mapped_column(Integer)
+    rotation: Mapped[int] = mapped_column(Integer, default=0)
+    mediabox_json: Mapped[str] = mapped_column(Text)
+    cropbox_json: Mapped[str] = mapped_column(Text)
+    transform_matrix_json: Mapped[str] = mapped_column(Text)  # [a,b,c,d,e,f]
+    png_file_path: Mapped[str] = mapped_column(String(512))
+
+
+class RenderJobTable(Base):
+    """SQLAlchemy model for render jobs."""
+    __tablename__ = "render_jobs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    project_id: Mapped[str] = mapped_column(String(36), index=True)
+    pdf_id: Mapped[str] = mapped_column(String(36), index=True)
+    mapping_version_id: Mapped[str] = mapped_column(String(36))
+    status: Mapped[str] = mapped_column(String(20), default="processing")
+    output_pdf_path: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    request_json: Mapped[str] = mapped_column(Text)  # serialized request
+    trace_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 # Engine and session factory (initialized lazily)
 _engine = None
 AsyncSessionLocal = None

@@ -10,7 +10,7 @@
 | v1.0.0 | Phase 1 — Visual Guide Generation | COMPLETE | 38 |
 | v1.1.0 | Phase 1.5 — SaaS Hardening | COMPLETE | 66 |
 | v2.0.0 | Phase 2 — Extraction and Query | COMPLETE | 98 |
-| v3.0.0 | Phase 3 — Render | COMPLETE | 123 |
+| v3.0.0 | Phase 3 — Render | COMPLETE | 137 |
 
 ---
 
@@ -160,14 +160,24 @@ Renderer performs zero model calls. All geometry derived from mapping.
   - TraceInfo for reproducibility
   - RenderPDFRequest, RenderAnnotationsRequest
   - ErrorResponseV3 with PDF_MISMATCH, MAPPING_REQUIRED
+- **V3 endpoints** (routes_v3.py)
+  - POST /v3/projects/{project_id}/pdf — Upload PDF master
+  - POST /v3/projects/{project_id}/pdf/{pdf_id}/build-mapping — Start mapping job
+  - GET /v3/projects/{project_id}/pdf/{pdf_id}/mapping/status — Mapping status
+  - GET /v3/projects/{project_id}/pdf/{pdf_id}/mapping — Get mapping data
+  - POST /v3/projects/{project_id}/render/pdf — Render annotated PDF
+  - GET /v3/projects/{project_id}/render/pdf/{render_job_id} — Render status
+  - POST /v3/projects/{project_id}/render/annotations — Export annotations
+- **Database tables** (database.py)
+  - PDFMasterTable, MappingJobTable, PageMappingTable, RenderJobTable
 - **Coordinate transform**
   - Affine matrix [a, b, c, d, e, f] for scaling/translation
   - Rotation support (0, 90, 180, 270 degrees)
   - Cropbox/mediabox offset handling
 - **Test coverage**
-  - 25 new tests for all 8 render gates
-  - Schema validation tests
-  - Transform correctness tests
+  - 25 schema validation tests (test_render.py)
+  - 14 endpoint tests (test_v3_endpoints.py)
+  - All gates tested: fingerprint mismatch, mapping required, pure render
 
 ### Test Gates (All Passing)
 | Gate | Description | Test |
