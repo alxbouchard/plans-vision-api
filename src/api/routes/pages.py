@@ -82,7 +82,7 @@ async def upload_page(
     # Read and save file
     try:
         content = await file.read()
-        file_path = await file_storage.save_image(
+        file_path, metadata = await file_storage.save_image(
             project_id=project_id,
             content=content,
             content_type=content_type,
@@ -93,8 +93,15 @@ async def upload_page(
             detail=str(e),
         )
 
-    # Create page record
-    page = await page_repo.create(project_id, file_path)
+    # Create page record with image metadata
+    page = await page_repo.create(
+        project_id=project_id,
+        file_path=file_path,
+        image_width=metadata.width,
+        image_height=metadata.height,
+        image_sha256=metadata.sha256,
+        byte_size=metadata.byte_size,
+    )
 
     # Increment usage counter
     increment_usage(request, pages_delta=1)

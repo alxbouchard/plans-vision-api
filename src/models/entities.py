@@ -44,6 +44,12 @@ class Page(BaseModel):
     file_path: str = Field(description="Path to stored image file")
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
+    # Image metadata (Phase 2 bugfix)
+    image_width: Optional[int] = Field(default=None, description="Image width in pixels")
+    image_height: Optional[int] = Field(default=None, description="Image height in pixels")
+    image_sha256: Optional[str] = Field(default=None, description="SHA256 hash of image bytes")
+    byte_size: Optional[int] = Field(default=None, description="File size in bytes")
+
     model_config = {"from_attributes": True}
 
 
@@ -113,3 +119,187 @@ class RateLimitEntry(BaseModel):
     tenant_id: UUID
     window_start: datetime
     request_count: int = Field(default=0)
+
+
+# =============================================================================
+# Phase 2 entities - Extraction and Query
+# =============================================================================
+
+class PageType(str, Enum):
+    """Classification of page content type."""
+    PLAN = "plan"
+    SCHEDULE = "schedule"
+    NOTES = "notes"
+    LEGEND = "legend"
+    DETAIL = "detail"
+    UNKNOWN = "unknown"
+
+
+class ConfidenceLevel(str, Enum):
+    """Confidence level for extracted objects."""
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"
+
+
+class ObjectType(str, Enum):
+    """Types of objects that can be extracted."""
+    ROOM = "room"
+    DOOR = "door"
+    WINDOW = "window"
+    STAIRS = "stairs"
+    ELEVATOR = "elevator"
+    SCHEDULE_TABLE = "schedule_table"
+    TABLE = "table"  # Generic table for schedule extraction
+
+
+class DoorType(str, Enum):
+    """Types of doors that can be identified."""
+    SINGLE = "single"
+    DOUBLE = "double"
+    SLIDING = "sliding"
+    REVOLVING = "revolving"
+    UNKNOWN = "unknown"
+
+
+class ExtractionStatus(str, Enum):
+    """Status of extraction job."""
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class PageClassification(BaseModel):
+    """Classification result for a page."""
+    page_id: UUID
+    page_type: PageType
+    confidence: float = Field(ge=0.0, le=1.0)
+    confidence_level: ConfidenceLevel
+    classified_at: datetime = Field(default_factory=datetime.utcnow)
+
+    model_config = {"from_attributes": True}
+
+
+class BoundingBox(BaseModel):
+    """Bounding box geometry [x, y, width, height]."""
+    x: int = Field(ge=0, description="X coordinate (top-left)")
+    y: int = Field(ge=0, description="Y coordinate (top-left)")
+    w: int = Field(gt=0, description="Width")
+    h: int = Field(gt=0, description="Height")
+
+    def to_list(self) -> list[int]:
+        return [self.x, self.y, self.w, self.h]
+
+
+class Geometry(BaseModel):
+    """Geometry container for extracted objects."""
+    type: str = Field(default="bbox", description="Geometry type: bbox or polygon")
+    bbox: list[int] = Field(
+        description="Bounding box as [x, y, w, h]",
+        min_length=4,
+        max_length=4
+    )
+    polygon: Optional[list[list[int]]] = Field(
+        default=None,
+        description="Optional polygon points for Phase 2.1"
+    )
+
+
+class ExtractedObject(BaseModel):
+    """Base class for extracted objects."""
+    id: str = Field(description="Deterministic object ID")
+    type: ObjectType
+    page_id: UUID
+    geometry: Geometry
+    confidence: float = Field(ge=0.0, le=1.0)
+    confidence_level: ConfidenceLevel
+    sources: list[str] = Field(
+        default_factory=list,
+        description="Evidence sources: text_detected, boundary_detected, etc."
+    )
+    label: Optional[str] = Field(default=None, description="Detected label text")
+
+    model_config = {"from_attributes": True}
+
+
+class ExtractedRoom(ExtractedObject):
+    """A room extracted from a plan page."""
+    type: ObjectType = ObjectType.ROOM
+    room_number: Optional[str] = Field(default=None)
+    room_name: Optional[str] = Field(default=None)
+
+
+class ExtractedDoor(ExtractedObject):
+    """A door extracted from a plan page."""
+    type: ObjectType = ObjectType.DOOR
+    door_type: str = Field(
+        default="unknown",
+        description="Door type: single, double, sliding, unknown"
+    )
+
+
+class ExtractedWindow(ExtractedObject):
+    """A window extracted from a plan page."""
+    type: ObjectType = ObjectType.WINDOW
+
+
+class ExtractedCirculation(ExtractedObject):
+    """Vertical circulation (stairs/elevator) extracted from a plan page."""
+    circulation_type: str = Field(description="stairs or elevator")
+
+
+class ScheduleRow(BaseModel):
+    """A row in a schedule table."""
+    row_index: int
+    cells: list[str] = Field(default_factory=list)
+
+
+class ExtractedScheduleTable(ExtractedObject):
+    """A schedule table extracted from a schedule page."""
+    type: ObjectType = ObjectType.SCHEDULE_TABLE
+    headers: list[str] = Field(default_factory=list)
+    rows: list[ScheduleRow] = Field(default_factory=list)
+
+
+class ExtractionStepStatus(BaseModel):
+    """Status of a single extraction step."""
+    name: str
+    status: ExtractionStatus
+    error: Optional[str] = None
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+
+
+class ExtractionJob(BaseModel):
+    """Extraction job tracking."""
+    id: UUID = Field(default_factory=uuid4)
+    project_id: UUID
+    overall_status: ExtractionStatus = ExtractionStatus.PENDING
+    current_step: Optional[str] = None
+    steps: list[ExtractionStepStatus] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    error: Optional[str] = None
+
+    model_config = {"from_attributes": True}
+
+
+class ProjectIndex(BaseModel):
+    """Searchable index for a project's extracted objects."""
+    project_id: UUID
+    generated_at: datetime = Field(default_factory=datetime.utcnow)
+    rooms_by_number: dict[str, list[str]] = Field(
+        default_factory=dict,
+        description="Map room_number -> list of object IDs"
+    )
+    rooms_by_name: dict[str, list[str]] = Field(
+        default_factory=dict,
+        description="Map room_name -> list of object IDs"
+    )
+    objects_by_type: dict[str, list[str]] = Field(
+        default_factory=dict,
+        description="Map object_type -> list of object IDs"
+    )
+
+    model_config = {"from_attributes": True}

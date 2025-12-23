@@ -59,6 +59,12 @@ class PageTable(Base):
     file_path: Mapped[str] = mapped_column(String(512))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
+    # Image metadata (Phase 2 bugfix)
+    image_width: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    image_height: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    image_sha256: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    byte_size: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
     project: Mapped["ProjectTable"] = relationship("ProjectTable", back_populates="pages")
 
 
@@ -112,3 +118,20 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
         await init_database()
     async with AsyncSessionLocal() as session:
         yield session
+
+
+from contextlib import asynccontextmanager
+
+
+@asynccontextmanager
+async def get_db() -> AsyncGenerator[AsyncSession, None]:
+    """Get a database session as a context manager."""
+    if AsyncSessionLocal is None:
+        await init_database()
+    async with AsyncSessionLocal() as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise

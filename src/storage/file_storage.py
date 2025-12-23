@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 import aiofiles
 import shutil
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
@@ -17,6 +19,15 @@ from src.config import get_settings
 from src.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+@dataclass
+class ImageMetadata:
+    """Metadata computed from an uploaded image."""
+    width: int
+    height: int
+    sha256: str
+    byte_size: int
 
 
 class FileStorageError(Exception):
@@ -74,7 +85,7 @@ class FileStorage:
         content: bytes,
         content_type: str,
         tenant_id: Optional[UUID] = None,
-    ) -> str:
+    ) -> tuple[str, ImageMetadata]:
         """
         Save an uploaded image with validation.
 
@@ -85,7 +96,7 @@ class FileStorage:
             tenant_id: Optional tenant ID for scoped storage
 
         Returns:
-            Relative path to the saved file
+            Tuple of (relative path to saved file, ImageMetadata)
 
         Raises:
             FileStorageError: If validation fails
@@ -100,11 +111,15 @@ class FileStorage:
             )
 
         # Validate file size
-        if len(content) > self.max_file_size:
+        byte_size = len(content)
+        if byte_size > self.max_file_size:
             raise FileStorageError(
-                f"File too large: {len(content)} bytes. Maximum is {self.max_file_size} bytes.",
+                f"File too large: {byte_size} bytes. Maximum is {self.max_file_size} bytes.",
                 error_code="FILE_TOO_LARGE",
             )
+
+        # Compute SHA256 hash
+        sha256_hash = hashlib.sha256(content).hexdigest()
 
         # Validate it's actually a valid PNG and check dimensions
         try:
@@ -130,7 +145,8 @@ class FileStorage:
                 tenant_id=str(tid) if tid else None,
                 width=width,
                 height=height,
-                size_bytes=len(content),
+                size_bytes=byte_size,
+                sha256=sha256_hash[:16],  # Log prefix only
             )
 
         except FileStorageError:
@@ -162,8 +178,16 @@ class FileStorage:
                 error_code="STORAGE_FAILURE",
             )
 
-        # Return relative path (includes tenant_id for isolation)
-        return str(file_path.relative_to(self.base_dir))
+        # Build metadata
+        metadata = ImageMetadata(
+            width=width,
+            height=height,
+            sha256=sha256_hash,
+            byte_size=byte_size,
+        )
+
+        # Return relative path and metadata
+        return str(file_path.relative_to(self.base_dir)), metadata
 
     async def get_image_path(self, relative_path: str) -> Path:
         """Get the absolute path to a stored image."""
@@ -198,6 +222,26 @@ class FileStorage:
         abs_path = await self.get_image_path(relative_path)
         async with aiofiles.open(abs_path, "rb") as f:
             return await f.read()
+
+    async def compute_image_metadata(self, relative_path: str) -> ImageMetadata:
+        """
+        Compute metadata for an existing stored image.
+
+        Used for backfilling metadata on pages created before this feature.
+        """
+        content = await self.read_image_bytes(relative_path)
+        byte_size = len(content)
+        sha256_hash = hashlib.sha256(content).hexdigest()
+
+        img = Image.open(io.BytesIO(content))
+        width, height = img.size
+
+        return ImageMetadata(
+            width=width,
+            height=height,
+            sha256=sha256_hash,
+            byte_size=byte_size,
+        )
 
     async def delete_project_files(
         self,

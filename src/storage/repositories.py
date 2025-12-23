@@ -126,8 +126,16 @@ class PageRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def create(self, project_id: UUID, file_path: str) -> Page:
-        """Create a new page with auto-incremented order."""
+    async def create(
+        self,
+        project_id: UUID,
+        file_path: str,
+        image_width: Optional[int] = None,
+        image_height: Optional[int] = None,
+        image_sha256: Optional[str] = None,
+        byte_size: Optional[int] = None,
+    ) -> Page:
+        """Create a new page with auto-incremented order and optional metadata."""
         # Get next order number
         result = await self.session.execute(
             select(func.coalesce(func.max(PageTable.order), 0)).where(
@@ -140,6 +148,10 @@ class PageRepository:
             project_id=project_id,
             order=next_order,
             file_path=file_path,
+            image_width=image_width,
+            image_height=image_height,
+            image_sha256=image_sha256,
+            byte_size=byte_size,
         )
         db_page = PageTable(
             id=str(page.id),
@@ -147,10 +159,28 @@ class PageRepository:
             order=page.order,
             file_path=page.file_path,
             created_at=page.created_at,
+            image_width=page.image_width,
+            image_height=page.image_height,
+            image_sha256=page.image_sha256,
+            byte_size=page.byte_size,
         )
         self.session.add(db_page)
         await self.session.commit()
         return page
+
+    def _db_page_to_entity(self, db_page: PageTable) -> Page:
+        """Convert a database page to domain entity."""
+        return Page(
+            id=UUID(db_page.id),
+            project_id=UUID(db_page.project_id),
+            order=db_page.order,
+            file_path=db_page.file_path,
+            created_at=db_page.created_at,
+            image_width=db_page.image_width,
+            image_height=db_page.image_height,
+            image_sha256=db_page.image_sha256,
+            byte_size=db_page.byte_size,
+        )
 
     async def get_by_id(self, page_id: UUID, project_id: UUID) -> Optional[Page]:
         """Get a page by ID within a project."""
@@ -163,13 +193,30 @@ class PageRepository:
         db_page = result.scalar_one_or_none()
         if db_page is None:
             return None
-        return Page(
-            id=UUID(db_page.id),
-            project_id=UUID(db_page.project_id),
-            order=db_page.order,
-            file_path=db_page.file_path,
-            created_at=db_page.created_at,
+        return self._db_page_to_entity(db_page)
+
+    async def update_metadata(
+        self,
+        page_id: UUID,
+        image_width: int,
+        image_height: int,
+        image_sha256: str,
+        byte_size: int,
+    ) -> bool:
+        """Update image metadata for a page (used for backfill)."""
+        result = await self.session.execute(
+            select(PageTable).where(PageTable.id == str(page_id))
         )
+        db_page = result.scalar_one_or_none()
+        if db_page is None:
+            return False
+
+        db_page.image_width = image_width
+        db_page.image_height = image_height
+        db_page.image_sha256 = image_sha256
+        db_page.byte_size = byte_size
+        await self.session.commit()
+        return True
 
     async def list_by_project(self, project_id: UUID) -> list[Page]:
         """List all pages in a project, ordered."""
@@ -178,16 +225,7 @@ class PageRepository:
                 PageTable.project_id == str(project_id)
             ).order_by(PageTable.order)
         )
-        return [
-            Page(
-                id=UUID(db.id),
-                project_id=UUID(db.project_id),
-                order=db.order,
-                file_path=db.file_path,
-                created_at=db.created_at,
-            )
-            for db in result.scalars().all()
-        ]
+        return [self._db_page_to_entity(db) for db in result.scalars().all()]
 
     async def get_by_order(self, project_id: UUID, order: int) -> Optional[Page]:
         """Get a page by its order number within a project."""
@@ -200,13 +238,7 @@ class PageRepository:
         db_page = result.scalar_one_or_none()
         if db_page is None:
             return None
-        return Page(
-            id=UUID(db_page.id),
-            project_id=UUID(db_page.project_id),
-            order=db_page.order,
-            file_path=db_page.file_path,
-            created_at=db_page.created_at,
-        )
+        return self._db_page_to_entity(db_page)
 
     async def count_by_project(self, project_id: UUID) -> int:
         """Count pages in a project."""
