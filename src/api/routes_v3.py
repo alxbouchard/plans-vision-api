@@ -47,6 +47,7 @@ from src.storage.database import (
     PageMappingTable,
     RenderJobTable,
     ProjectTable,
+    PageTable,
 )
 from src.config import get_settings
 from src.logging import get_logger
@@ -197,29 +198,54 @@ async def build_mapping(
     )
     session.add(job)
 
-    # For simplicity, we'll create placeholder mappings synchronously
-    # In production, this would be a background task with PyMuPDF
+    # Rasterize PDF pages to PNG using PyMuPDF
     settings = get_settings()
     png_dir = os.path.join(settings.upload_dir, str(project_id), "png")
     os.makedirs(png_dir, exist_ok=True)
 
-    # Create page mappings with placeholder transforms
-    for page_num in range(1, pdf.page_count + 1):
-        # Placeholder values - in production, extract from PDF
-        png_width = 2400
-        png_height = 3200
-        pdf_width_pt = 612.0  # Letter size
-        pdf_height_pt = 792.0
+    # Open PDF for rasterization
+    pdf_doc = fitz.open(pdf.file_path)
 
-        # Compute affine transform: PNG coords to PDF coords
-        # scale_x = pdf_width / png_width, scale_y = pdf_height / png_height
+    # Create page mappings and PageTable rows for each page
+    for page_num in range(1, pdf.page_count + 1):
+        page_idx = page_num - 1
+        page = pdf_doc[page_idx]
+
+        # Get real PDF page geometry (all from page object, no hardcoding)
+        rect = page.rect
+        pdf_width_pt = rect.width
+        pdf_height_pt = rect.height
+        rotation = page.rotation
+
+        # Get real mediabox and cropbox from PDF
+        mediabox_rect = page.mediabox
+        cropbox_rect = page.cropbox
+        mediabox = [mediabox_rect.x0, mediabox_rect.y0, mediabox_rect.x1, mediabox_rect.y1]
+        cropbox = [cropbox_rect.x0, cropbox_rect.y0, cropbox_rect.x1, cropbox_rect.y1]
+
+        # Rasterize to PNG at 2x scale (fixed zoom, actual dimensions from pixmap)
+        mat = fitz.Matrix(2, 2)
+        pix = page.get_pixmap(matrix=mat)
+        png_width = pix.width
+        png_height = pix.height
+
+        # Save PNG
+        png_path = os.path.join(png_dir, f"page_{page_num}.png")
+        pix.save(png_path)
+
+        # Get PNG file stats for PageTable
+        with open(png_path, "rb") as f:
+            png_bytes = f.read()
+        byte_size = len(png_bytes)
+        image_sha256 = hashlib.sha256(png_bytes).hexdigest()
+
+        # Compute affine transform: PNG coords to PDF coords (derived from real dimensions)
         scale_x = pdf_width_pt / png_width
         scale_y = pdf_height_pt / png_height
         # Affine matrix [a, b, c, d, e, f] for: x' = ax + cy + e, y' = bx + dy + f
         matrix = [scale_x, 0, 0, scale_y, 0, 0]
 
-        png_path = os.path.join(png_dir, f"page_{page_num}.png")
-
+        # Create PageMappingTable entry
         page_mapping = PageMappingTable(
             id=str(uuid4()),
             mapping_version_id=str(mapping_version_id),
@@ -229,13 +255,28 @@ async def build_mapping(
             png_height=png_height,
             pdf_width_pt=int(pdf_width_pt),
             pdf_height_pt=int(pdf_height_pt),
-            rotation=0,
-            mediabox_json=json.dumps([0, 0, pdf_width_pt, pdf_height_pt]),
-            cropbox_json=json.dumps([0, 0, pdf_width_pt, pdf_height_pt]),
+            rotation=rotation,
+            mediabox_json=json.dumps(mediabox),
+            cropbox_json=json.dumps(cropbox),
             transform_matrix_json=json.dumps(matrix),
             png_file_path=png_path,
         )
         session.add(page_mapping)
+
+        # Create PageTable entry for Phase 1 analyze compatibility
+        page_entry = PageTable(
+            id=str(uuid4()),
+            project_id=str(project_id),
+            order=page_num,
+            file_path=png_path,
+            image_width=png_width,
+            image_height=png_height,
+            image_sha256=image_sha256,
+            byte_size=byte_size,
+        )
+        session.add(page_entry)
+
+    pdf_doc.close()
 
     # Mark job as completed
     job.status = "completed"

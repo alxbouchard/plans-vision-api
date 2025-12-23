@@ -487,3 +487,66 @@ class TestRenderAnnotations:
         assert data["schema_version"] == "3.1"
         assert data["format"] == "json"
         assert "annotations" in data
+
+
+class TestPDFFirstWorkflow:
+    """Regression tests for PDF-first workflow.
+
+    Ensures build-mapping creates PageTable rows so Phase 1 analyze works.
+    """
+
+    @pytest.mark.asyncio
+    async def test_build_mapping_creates_page_table_rows(self, client, project_id):
+        """After build-mapping, GET /projects/{id}/pages returns correct count."""
+        # Upload a 3-page PDF
+        pdf_content = create_pdf_with_pages(3)
+        pdf_resp = await client.post(
+            f"/v3/projects/{project_id}/pdf",
+            files={"file": ("test_3pages.pdf", io.BytesIO(pdf_content), "application/pdf")},
+        )
+        assert pdf_resp.status_code == 201
+        pdf_data = pdf_resp.json()
+        assert pdf_data["page_count"] == 3
+        pdf_id = pdf_data["pdf_id"]
+
+        # Build mapping
+        mapping_resp = await client.post(
+            f"/v3/projects/{project_id}/pdf/{pdf_id}/build-mapping"
+        )
+        assert mapping_resp.status_code == 202
+
+        # GET /projects/{id}/pages returns a list (not {"pages": [...]})
+        pages_resp = await client.get(f"/projects/{project_id}/pages")
+        assert pages_resp.status_code == 200
+        pages_list = pages_resp.json()
+        assert len(pages_list) == 3, (
+            f"Expected 3 pages, got {len(pages_list)}"
+        )
+
+        # Verify each page has required fields and correct order
+        for i, page in enumerate(pages_list, 1):
+            assert page["order"] == i
+            assert "id" in page
+            assert "project_id" in page
+
+    @pytest.mark.asyncio
+    async def test_analyze_after_build_mapping_no_422(self, client, project_id):
+        """POST /projects/{id}/analyze should not return 422 after build-mapping."""
+        # Upload a 3-page PDF
+        pdf_content = create_pdf_with_pages(3)
+        pdf_resp = await client.post(
+            f"/v3/projects/{project_id}/pdf",
+            files={"file": ("test.pdf", io.BytesIO(pdf_content), "application/pdf")},
+        )
+        pdf_id = pdf_resp.json()["pdf_id"]
+
+        # Build mapping
+        await client.post(f"/v3/projects/{project_id}/pdf/{pdf_id}/build-mapping")
+
+        # POST /projects/{id}/analyze should NOT return 422
+        analyze_resp = await client.post(f"/projects/{project_id}/analyze")
+
+        # Should be 202 (accepted) not 422 (unprocessable)
+        assert analyze_resp.status_code == 202, (
+            f"Expected 202, got {analyze_resp.status_code}: {analyze_resp.json()}"
+        )
