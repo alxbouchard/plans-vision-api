@@ -22,12 +22,14 @@ No further tasks unless bug fixes.
 
 ---
 
-## Phase 2 — Extraction and Query (READY)
+## Phase 2 — Extraction and Query (COMPLETE)
 
 Goal: deliver v2 endpoints for object extraction and querying.
 Follow docs/FEATURE_ExtractObjects.md and docs/PHASE2_DECISIONS.md.
 
-Allowed autonomous tasks in Phase 2:
+Status: All 8 tasks complete, 90 tests passing.
+
+Completed tasks:
 
 1 Page classification
 - Implement page_type classifier and persistence.
