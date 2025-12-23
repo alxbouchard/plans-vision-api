@@ -1,7 +1,7 @@
 # Project Status — plans-vision-api
 
 ## Current Phase
-**API v2 Ready** — Phase 1, Phase 1.5, and Phase 2 Complete
+**API v3 Ready** — Phase 1, Phase 1.5, Phase 2, and Phase 3 Complete
 
 ## Release Summary
 
@@ -10,6 +10,7 @@
 | v1.0.0 | Phase 1 — Visual Guide Generation | COMPLETE | 38 |
 | v1.1.0 | Phase 1.5 — SaaS Hardening | COMPLETE | 66 |
 | v2.0.0 | Phase 2 — Extraction and Query | COMPLETE | 98 |
+| v3.0.0 | Phase 3 — Render | COMPLETE | 123 |
 
 ---
 
@@ -145,12 +146,49 @@
 
 ---
 
+## Phase 3 — Render (COMPLETE)
+
+### Goal
+Anchor extracted objects to the master PDF and provide annotated output.
+Renderer performs zero model calls. All geometry derived from mapping.
+
+### What is DONE
+- **V3 schemas** (schemas_v3.py)
+  - PDFUploadResponse, MappingResponse, PageMapping
+  - AffineTransform for PNG→PDF coordinate conversion
+  - GeometryPNG (bbox) and GeometryPDF (rect)
+  - TraceInfo for reproducibility
+  - RenderPDFRequest, RenderAnnotationsRequest
+  - ErrorResponseV3 with PDF_MISMATCH, MAPPING_REQUIRED
+- **Coordinate transform**
+  - Affine matrix [a, b, c, d, e, f] for scaling/translation
+  - Rotation support (0, 90, 180, 270 degrees)
+  - Cropbox/mediabox offset handling
+- **Test coverage**
+  - 25 new tests for all 8 render gates
+  - Schema validation tests
+  - Transform correctness tests
+
+### Test Gates (All Passing)
+| Gate | Description | Test |
+|------|-------------|------|
+| Gate 1 | Fingerprint mismatch → PDF_MISMATCH | `TestGate1_FingerprintMismatch` |
+| Gate 2 | Mapping missing → MAPPING_REQUIRED | `TestGate2_MappingRequired` |
+| Gate 3 | Coordinate transform correctness | `TestGate3_CoordinateTransform` |
+| Gate 4 | Rotation coverage (0, 90, 180, 270) | `TestGate4_RotationCoverage` |
+| Gate 5 | Cropbox coverage | `TestGate5_CropboxCoverage` |
+| Gate 6 | Renderer is pure (zero model calls) | `TestGate6_RendererPure` |
+| Gate 7 | PDF output contains annotations | `TestGate7_PDFAnnotations` |
+| Gate 8 | Annotated PDF is reproducible | `TestGate8_Reproducibility` |
+
+---
+
 ## What is NOT STARTED (Do NOT implement yet)
 
-Phase 3+ features require explicit user approval:
+Phase 4+ features require explicit user approval:
 
-- Polygon geometry (Phase 2.1)
-- PDF annotation output
+- Polygon geometry (Phase 3.1)
+- XFDF export
 - Viewer integration
 - Pricing or SaaS billing
 - Production deployment (Docker, CI/CD)
@@ -161,13 +199,14 @@ Phase 3+ features require explicit user approval:
 - Phase 1: 2024-12-22
 - Phase 1.5: 2024-12-22
 - Phase 2: 2025-12-22
+- Phase 3: 2025-12-23
 
 ## Instruction for AI Agents
 
-**Phases 1, 1.5, and 2 are LOCKED.** Before any work:
+**Phases 1, 1.5, 2, and 3 are LOCKED.** Before any work:
 1. Read AGENTS.md
-2. Read docs/FEATURE_BuildGuide.md or docs/FEATURE_ExtractObjects.md
-3. Read docs/TEST_GATES.md or docs/TEST_GATES_PHASE2.md
+2. Read docs/FEATURE_Render_MasterPDF.md
+3. Read docs/TEST_GATES_RENDER.md
 4. Read this file (PROJECT_STATUS.md)
 
-**Any Phase 3 work requires explicit user approval and a new feature document.**
+**Any Phase 4 work requires explicit user approval and a new feature document.**
