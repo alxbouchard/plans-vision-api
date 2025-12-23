@@ -12,6 +12,7 @@ from src.config import get_settings
 from src.logging import configure_logging, get_logger
 from src.storage import init_database
 from src.api.routes import projects_router, pages_router, analysis_router
+from src.api.routes_v2 import extraction_router, query_router
 from src.api.middleware import (
     APIKeyAuthMiddleware,
     RateLimitMiddleware,
@@ -80,6 +81,10 @@ def create_app() -> FastAPI:
     app.include_router(projects_router)
     app.include_router(pages_router)
     app.include_router(analysis_router)
+
+    # V2 routers (extraction and query)
+    app.include_router(extraction_router)
+    app.include_router(query_router)
 
     # Exception handlers
     @app.exception_handler(RequestValidationError)
