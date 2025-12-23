@@ -558,14 +558,22 @@ See docs in ui_reference/docs for requirements.
       try {
         const data = await apiRequest('GET', `/v2/projects/${state.projectId}/extract/status`);
 
-        if (data.status === 'completed') {
-          state.extractionRunId = data.extraction_run_id;
+        // V2 extract status uses overall_status (not status)
+        const status = data.overall_status || data.status;
+        if (!status) {
+          // Fallback: show raw JSON if unknown response shape
+          updateStep('step5', 'processing', `Unknown response: ${JSON.stringify(data)}`, data);
+          return data;
+        }
+
+        if (status === 'completed') {
+          state.extractionRunId = data.extraction_run_id || data.job_id;
           updateStep('step5', 'success', `Extraction complete: ${data.objects_count || 0} objects`, data);
           enableStep('step6');
-        } else if (data.status === 'failed') {
+        } else if (status === 'failed') {
           updateStep('step5', 'error', `Extraction failed: ${data.error?.message || 'Unknown error'}`, data);
         } else {
-          updateStep('step5', 'processing', `Status: ${data.status}, step: ${data.current_step}`, data);
+          updateStep('step5', 'processing', `Status: ${status}, step: ${data.current_step || 'N/A'}`, data);
         }
 
         return data;
@@ -577,7 +585,8 @@ See docs in ui_reference/docs for requirements.
 
     async function pollExtractStatus() {
       const data = await checkExtractStatus();
-      if (data && data.status !== 'completed' && data.status !== 'failed') {
+      const status = data?.overall_status || data?.status;
+      if (data && status !== 'completed' && status !== 'failed') {
         setTimeout(pollExtractStatus, 2000);
       }
     }
