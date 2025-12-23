@@ -19,6 +19,7 @@ from src.api.middleware import (
     IdempotencyMiddleware,
     RequestContextMiddleware,
 )
+from src.api.middleware.auth import register_tenant
 from src.models.schemas import SCHEMA_VERSION
 
 logger = get_logger(__name__)
@@ -33,6 +34,31 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     await init_database()
     logger.info("database_initialized", message="Database initialized")
+
+    # Optionally register a demo API key for local testing
+    # Set PLANS_VISION_DEMO_KEY env var to enable
+    import os
+    demo_key = os.environ.get("PLANS_VISION_DEMO_KEY")
+    if demo_key:
+        from src.api.middleware.auth import hash_api_key, _tenant_store
+        from uuid import UUID
+        from datetime import datetime
+
+        demo_tenant_id = UUID("00000000-0000-0000-0000-000000000001")
+        key_hash = hash_api_key(demo_key)
+        _tenant_store[key_hash] = {
+            "tenant_id": demo_tenant_id,
+            "name": "demo",
+            "is_active": True,
+            "created_at": datetime.utcnow(),
+            "projects_count": 0,
+            "pages_this_month": 0,
+            "usage_reset_at": datetime.utcnow(),
+        }
+        logger.info("demo_key_created", message="Demo API key registered from PLANS_VISION_DEMO_KEY")
+        print(f"\n{'='*60}")
+        print(f"DEMO API KEY: {demo_key}")
+        print(f"{'='*60}\n")
 
     yield
 
@@ -55,8 +81,23 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # Middleware stack (order matters - first added = last executed)
-    # 1. CORS - allow all origins for local testing
+    # Middleware stack (order matters - last added = first executed)
+    # So we add in reverse order of desired execution:
+    # Execution order: CORS -> Auth -> RateLimit -> RequestContext -> Idempotency
+
+    # 5. Idempotency - caches responses for retry safety (needs tenant_id)
+    app.add_middleware(IdempotencyMiddleware)
+
+    # 4. Request context - adds request_id and timing (needs tenant_id from auth)
+    app.add_middleware(RequestContextMiddleware)
+
+    # 3. Rate limiting - must run after auth (so it has tenant_id)
+    app.add_middleware(RateLimitMiddleware)
+
+    # 2. Authentication - extracts tenant_id from API key
+    app.add_middleware(APIKeyAuthMiddleware)
+
+    # 1. CORS - must execute first to handle preflight and add headers
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -64,18 +105,6 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-
-    # 2. Idempotency - caches responses for retry safety (needs tenant_id)
-    app.add_middleware(IdempotencyMiddleware)
-
-    # 3. Request context - adds request_id and timing (needs tenant_id from auth)
-    app.add_middleware(RequestContextMiddleware)
-
-    # 4. Rate limiting - must run after auth (so it has tenant_id)
-    app.add_middleware(RateLimitMiddleware)
-
-    # 5. Authentication - extracts tenant_id from API key or X-Owner-Id
-    app.add_middleware(APIKeyAuthMiddleware)
 
     # Include routers
     app.include_router(projects_router)
@@ -130,3 +159,7 @@ def create_app() -> FastAPI:
         return {"status": "healthy", "version": "1.0.0"}
 
     return app
+
+
+# Create application instance for uvicorn
+app = create_app()

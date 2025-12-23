@@ -91,6 +91,10 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
         request: Request,
         call_next: Callable,
     ) -> Response:
+        # Skip auth for CORS preflight requests
+        if request.method == "OPTIONS":
+            return await call_next(request)
+
         # Skip auth for exempt paths
         if request.url.path in self.EXEMPT_PATHS:
             return await call_next(request)
@@ -158,7 +162,7 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
         error_code: str,
         message: str,
     ) -> JSONResponse:
-        """Create a standardized error response."""
+        """Create a standardized error response with CORS headers."""
         return JSONResponse(
             status_code=status_code,
             content={
@@ -166,5 +170,9 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
                 "error_code": error_code,
                 "message": message,
                 "details": None,
+            },
+            headers={
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Credentials": "true",
             },
         )

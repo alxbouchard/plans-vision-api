@@ -8,8 +8,11 @@ from functools import lru_cache
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 
-    # OpenAI API
-    openai_api_key: str = Field(..., description="OpenAI API key")
+    # OpenAI API (default to "test" for running tests without real key)
+    openai_api_key: str = Field(
+        default="test",
+        description="OpenAI API key"
+    )
 
     # Database
     database_url: str = Field(
