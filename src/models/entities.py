@@ -15,6 +15,7 @@ class ProjectStatus(str, Enum):
     DRAFT = "draft"
     PROCESSING = "processing"
     VALIDATED = "validated"
+    PROVISIONAL_ONLY = "provisional_only"  # Stable guide rejected but provisional exists
     FAILED = "failed"
 
 

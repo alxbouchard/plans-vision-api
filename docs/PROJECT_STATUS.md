@@ -92,10 +92,16 @@ Anchor extracted objects to the master PDF using deterministic geometry.
 
 ---
 
-## Phase 3.2 — Provisional Mode (RUNTIME MODE)
+## Phase 3.2 — Provisional Mode (RUNTIME MODE) — IMPLEMENTED
 
-**This is NOT a new development phase.**  
+**This is NOT a new development phase.**
 It is a **runtime operating mode** activated when a stable guide cannot be generated.
+
+### Implementation (commit df8f5eb+)
+- Added `ProjectStatus.PROVISIONAL_ONLY` enum value
+- Orchestrator uses `PROVISIONAL_ONLY` instead of `FAILED` when provisional guide exists
+- `PipelineStatusResponse` includes `has_provisional`, `has_stable`, `rejection_reason`
+- UI displays "Provisional mode" and enables extraction
 
 ### Trigger Condition
 - Analyze completes with:
@@ -103,17 +109,17 @@ It is a **runtime operating mode** activated when a stable guide cannot be gener
   - `has_stable = false`
 - Stable guide rejected due to insufficient stability ratio
 
-### Required Behavior
-- Project MUST NOT be marked as `failed`
-- Project MUST be marked as `provisional_only`
-- `rejection_reason` MUST be preserved and returned
+### Required Behavior ✅
+- Project MUST NOT be marked as `failed` ✅
+- Project MUST be marked as `provisional_only` ✅
+- `rejection_reason` MUST be preserved and returned ✅
 
 ### What is Allowed in `provisional_only`
-- Phase 2 extraction using the provisional guide
-- Query endpoints remain available
-- Render endpoints remain available
+- Phase 2 extraction using the provisional guide ✅
+- Query endpoints remain available ✅
+- Render endpoints remain available ✅
 - All results MUST include:
-  - `guide_source = "provisional"`
+  - `guide_source = "provisional"` (TODO: add to extraction)
 
 ### Constraints (Non-Negotiable)
 - No hardcoded semantics

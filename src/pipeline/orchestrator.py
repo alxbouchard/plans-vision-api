@@ -257,9 +257,10 @@ class PipelineOrchestrator:
                 )
 
             else:
-                # Guide rejected due to instability - this is a valid outcome
+                # Guide rejected due to instability - but provisional guide exists
+                # Use PROVISIONAL_ONLY instead of FAILED to allow extraction
                 await self.guides.update_stable(project_id, None, confidence_report)
-                await self.projects.update_status(project_id, ProjectStatus.FAILED)
+                await self.projects.update_status(project_id, ProjectStatus.PROVISIONAL_ONLY)
 
                 logger.info(
                     "pipeline_complete",
@@ -349,8 +350,8 @@ class PipelineOrchestrator:
                 "but they have NOT been validated against other pages."
             )
 
-            # Update status - use a special status or mark as failed with reason
-            await self.projects.update_status(project_id, ProjectStatus.FAILED)
+            # Update status to PROVISIONAL_ONLY (not FAILED) since we have a provisional guide
+            await self.projects.update_status(project_id, ProjectStatus.PROVISIONAL_ONLY)
 
             logger.info(
                 "pipeline_single_page_complete",

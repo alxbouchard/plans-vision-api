@@ -510,7 +510,7 @@ See docs in ui_reference/docs for requirements.
         const data = await apiRequest('GET', `/projects/${state.projectId}/status`);
 
         if (data.status === 'validated') {
-          updateStep('step4', 'success', 'Analysis complete', data);
+          updateStep('step4', 'success', 'Analysis complete (stable guide)', data);
           enableStep('step5');
 
           // Try to get guide
@@ -522,8 +522,23 @@ See docs in ui_reference/docs for requirements.
           } catch (e) {
             // Guide might not exist if rejected
           }
+        } else if (data.status === 'provisional_only') {
+          // Stable guide rejected but provisional exists - extraction is allowed
+          const reason = data.rejection_reason || 'Stable guide rejected due to insufficient stability';
+          updateStep('step4', 'success', `Provisional mode: ${reason}`, data);
+          enableStep('step5');
+
+          // Try to get guide
+          try {
+            const guide = await apiRequest('GET', `/projects/${state.projectId}/guide`);
+            state.guideVersionId = guide.id;
+            document.getElementById('step4Output').style.display = 'block';
+            document.getElementById('step4Output').textContent = JSON.stringify(guide, null, 2);
+          } catch (e) {
+            // Guide might not exist
+          }
         } else if (data.status === 'failed') {
-          updateStep('step4', 'error', `Analysis failed: ${data.error?.message || 'Unknown error'}`, data);
+          updateStep('step4', 'error', `Analysis failed: ${data.error?.message || data.error_message || 'Unknown error'}`, data);
         } else {
           updateStep('step4', 'processing', `Status: ${data.status}, step: ${data.current_step}`, data);
         }
@@ -537,7 +552,7 @@ See docs in ui_reference/docs for requirements.
 
     async function pollAnalyzeStatus() {
       const data = await checkAnalyzeStatus();
-      if (data && data.status !== 'validated' && data.status !== 'failed') {
+      if (data && data.status !== 'validated' && data.status !== 'failed' && data.status !== 'provisional_only') {
         setTimeout(pollAnalyzeStatus, 2000);
       }
     }

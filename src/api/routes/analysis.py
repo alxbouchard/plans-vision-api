@@ -176,11 +176,20 @@ async def get_analysis_status(
     # Determine current step based on status and guide state
     current_step = None
     error_message = None
+    has_provisional = False
+    has_stable = False
+    rejection_reason = None
+
+    guide_repo = VisualGuideRepository(session)
+    guide = await guide_repo.get_by_project(project_id)
+
+    if guide:
+        has_provisional = guide.provisional is not None
+        has_stable = guide.stable is not None
+        if guide.confidence_report and guide.confidence_report.rejection_reason:
+            rejection_reason = guide.confidence_report.rejection_reason
 
     if project.status == ProjectStatus.PROCESSING:
-        guide_repo = VisualGuideRepository(session)
-        guide = await guide_repo.get_by_project(project_id)
-
         if guide is None or guide.provisional is None:
             current_step = "guide_builder"
         elif guide.confidence_report is None:
@@ -189,10 +198,8 @@ async def get_analysis_status(
             current_step = "consolidation"
 
     elif project.status == ProjectStatus.FAILED:
-        guide_repo = VisualGuideRepository(session)
-        guide = await guide_repo.get_by_project(project_id)
-        if guide and guide.confidence_report and guide.confidence_report.rejection_reason:
-            error_message = guide.confidence_report.rejection_reason
+        if rejection_reason:
+            error_message = rejection_reason
 
     # Get current usage stats
     usage_stats = None
@@ -212,6 +219,9 @@ async def get_analysis_status(
         current_step=current_step,
         pages_processed=page_count if project.status != ProjectStatus.PROCESSING else 0,
         total_pages=page_count,
+        has_provisional=has_provisional,
+        has_stable=has_stable,
+        rejection_reason=rejection_reason,
         error_message=error_message,
         usage=usage_stats,
     )

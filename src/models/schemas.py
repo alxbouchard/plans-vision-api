@@ -331,6 +331,17 @@ class PipelineStatusResponse(BaseResponse):
             "usage": {"input_tokens": 10000, "cost_usd": 0.035}
         }
 
+    Example (provisional_only):
+        {
+            "project_id": "...",
+            "status": "provisional_only",
+            "has_provisional": true,
+            "has_stable": false,
+            "rejection_reason": "Stable guide rejected due to insufficient stability ratio.",
+            "pages_processed": 3,
+            "total_pages": 3
+        }
+
     Example (failed with structured error):
         {
             "project_id": "...",
@@ -348,7 +359,7 @@ class PipelineStatusResponse(BaseResponse):
     """
     project_id: UUID = Field(description="Project identifier")
     status: ProjectStatus = Field(
-        description="Current status: draft, processing, validated, or failed"
+        description="Current status: draft, processing, validated, provisional_only, or failed"
     )
     current_step: Optional[PipelineStep] = Field(
         default=None,
@@ -361,6 +372,18 @@ class PipelineStatusResponse(BaseResponse):
     total_pages: int = Field(
         default=0,
         description="Total pages in project"
+    )
+    has_provisional: bool = Field(
+        default=False,
+        description="True if a provisional guide exists"
+    )
+    has_stable: bool = Field(
+        default=False,
+        description="True if a stable guide exists"
+    )
+    rejection_reason: Optional[str] = Field(
+        default=None,
+        description="Reason why stable guide was rejected (if status is provisional_only)"
     )
     error: Optional[PipelineErrorSchema] = Field(
         default=None,
