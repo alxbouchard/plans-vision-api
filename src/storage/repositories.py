@@ -170,6 +170,11 @@ class PageRepository:
 
     def _db_page_to_entity(self, db_page: PageTable) -> Page:
         """Convert a database page to domain entity."""
+        # Convert stored int back to float for confidence
+        confidence = None
+        if db_page.classification_confidence is not None:
+            confidence = db_page.classification_confidence / 1000.0
+
         return Page(
             id=UUID(db_page.id),
             project_id=UUID(db_page.project_id),
@@ -180,6 +185,9 @@ class PageRepository:
             image_height=db_page.image_height,
             image_sha256=db_page.image_sha256,
             byte_size=db_page.byte_size,
+            page_type=db_page.page_type,
+            classification_confidence=confidence,
+            classified_at=db_page.classified_at,
         )
 
     async def get_by_id(self, page_id: UUID, project_id: UUID) -> Optional[Page]:
@@ -248,6 +256,29 @@ class PageRepository:
             )
         )
         return result.scalar() or 0
+
+    async def update_classification(
+        self,
+        page_id: UUID,
+        page_type: str,
+        confidence: float,
+        classified_at: "datetime",
+    ) -> bool:
+        """Update page classification (Phase 3.2 fix - persisted instead of in-memory)."""
+        from datetime import datetime as dt
+        result = await self.session.execute(
+            select(PageTable).where(PageTable.id == str(page_id))
+        )
+        db_page = result.scalar_one_or_none()
+        if db_page is None:
+            return False
+
+        db_page.page_type = page_type
+        # Store as int * 1000 for precision
+        db_page.classification_confidence = int(confidence * 1000)
+        db_page.classified_at = classified_at
+        await self.session.commit()
+        return True
 
 
 class VisualGuideRepository:

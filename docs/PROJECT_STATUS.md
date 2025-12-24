@@ -69,6 +69,11 @@ Run `./scripts/test_summary.sh` to verify test counts. Do not hardcode.
   - Fallback to DETAIL with confidence=0.2
   - Uncertainty expressed via confidence, not type
   - 11 regression tests
+- **Bugfix (Phase 3.2): page classification persisted to database**
+  - PageTable now has `page_type`, `classification_confidence`, `classified_at` columns
+  - Overlay reads `page_type` from database (single source of truth)
+  - No in-memory-only storage for data the API must serve
+  - **Schema change**: requires `rm plans_vision.db` before restart
 - Extraction pipeline (rooms, doors, schedules)
 - Deterministic indexing
 - Explicit ambiguity handling

@@ -76,7 +76,7 @@ async def run_extraction(project_id: UUID, job: ExtractionJob) -> None:
 
 
 async def _run_classify_pages(project_id: UUID, job: ExtractionJob) -> None:
-    """Step 1: Classify all pages by type."""
+    """Step 1: Classify all pages by type and persist to database."""
     job.current_step = "classify_pages"
     _update_step_status(job, "classify_pages", ExtractionStatus.RUNNING)
 
@@ -95,13 +95,22 @@ async def _run_classify_pages(project_id: UUID, job: ExtractionJob) -> None:
                 # Classify
                 classification = await classifier.classify(page.id, image_bytes)
 
-                # Store classification
+                # Persist classification to database (Phase 3.2 fix)
+                await page_repo.update_classification(
+                    page_id=page.id,
+                    page_type=classification.page_type.value,
+                    confidence=classification.confidence,
+                    classified_at=classification.classified_at,
+                )
+
+                # Also store in memory for use in later pipeline steps
                 _page_classifications[page.id] = classification
 
-                logger.debug(
-                    "page_classification_stored",
+                logger.info(
+                    "page_classification_persisted",
                     page_id=str(page.id),
                     page_type=classification.page_type.value,
+                    confidence=classification.confidence,
                 )
 
             except Exception as e:
@@ -111,11 +120,19 @@ async def _run_classify_pages(project_id: UUID, job: ExtractionJob) -> None:
                     error=str(e),
                 )
                 # Continue with other pages but mark as unknown
-                _page_classifications[page.id] = PageClassification(
+                fallback = PageClassification(
                     page_id=page.id,
                     page_type=PageType.UNKNOWN,
                     confidence=0.0,
                     confidence_level=ConfidenceLevel.LOW,
+                )
+                _page_classifications[page.id] = fallback
+                # Persist fallback too
+                await page_repo.update_classification(
+                    page_id=page.id,
+                    page_type=fallback.page_type.value,
+                    confidence=fallback.confidence,
+                    classified_at=fallback.classified_at,
                 )
 
     _update_step_status(job, "classify_pages", ExtractionStatus.COMPLETED)

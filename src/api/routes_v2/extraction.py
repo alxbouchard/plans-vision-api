@@ -227,18 +227,63 @@ async def get_page_overlay(
             pass
 
     # Return overlay with real dimensions (or fallback if backfill failed)
-    from src.models.entities import PageType
-    from src.models.schemas_v2 import ImageDimensions
+    from src.models.entities import PageType, ConfidenceLevel as ConfLevelEnum
+    from src.models.schemas_v2 import ImageDimensions, ExtractedObjectResponse, ObjectType, Geometry
+    from src.extraction.pipeline import get_extracted_objects
 
     width = page.image_width if page.image_width else 0
     height = page.image_height if page.image_height else 0
+
+    # Get page_type from database (single source of truth - Phase 3.2 fix)
+    # page.page_type is persisted during extraction classify_pages step
+    if page.page_type:
+        try:
+            page_type = PageType(page.page_type)
+        except ValueError:
+            page_type = PageType.UNKNOWN
+    else:
+        # Not yet classified - extraction hasn't run
+        page_type = PageType.UNKNOWN
+
+    # Get extracted objects from in-memory storage
+    # NOTE: Objects are stored in-memory only and will be lost on server restart.
+    # This is acceptable for Phase 2 as extraction can be re-run.
+    # Future: Persist objects to database if they need to survive restarts.
+    extracted = get_extracted_objects(page_id)
+    objects = []
+    for obj in extracted:
+        # Determine object type
+        obj_type = ObjectType.UNKNOWN
+        if hasattr(obj, 'type'):
+            try:
+                obj_type = ObjectType(obj.type.value)
+            except ValueError:
+                obj_type = ObjectType.UNKNOWN
+
+        # Build geometry
+        geometry = Geometry(type="bbox", bbox=obj.bbox)
+
+        # Get confidence level
+        conf_level = obj.confidence_level if hasattr(obj, 'confidence_level') else ConfLevelEnum.LOW
+
+        objects.append(ExtractedObjectResponse(
+            id=obj.id,
+            type=obj_type,
+            label=getattr(obj, 'label', None),
+            room_number=getattr(obj, 'room_number', None),
+            room_name=getattr(obj, 'room_name', None),
+            door_type=getattr(obj, 'door_type', None),
+            geometry=geometry,
+            confidence=obj.confidence,
+            confidence_level=conf_level,
+        ))
 
     return PageOverlayResponse(
         project_id=project_id,
         page_id=page_id,
         image=ImageDimensions(width=width, height=height),
-        page_type=PageType.UNKNOWN,
-        objects=[],
+        page_type=page_type,
+        objects=objects,
     )
 
 

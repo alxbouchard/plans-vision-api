@@ -410,6 +410,20 @@ pytest --cov=src
 make fixtures
 ```
 
+## Database Schema
+
+This project uses SQLite with SQLAlchemy. Schema changes are applied automatically on startup via `create_all()`.
+
+**After schema changes, you must delete the existing database:**
+
+```bash
+rm plans_vision.db
+```
+
+Then restart the server. The database will be recreated with the new schema.
+
+**Note**: There are no migrations. In production, schema changes require manual migration or database recreation.
+
 ---
 
 ## Architecture

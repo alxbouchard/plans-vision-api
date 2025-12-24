@@ -65,6 +65,11 @@ class PageTable(Base):
     image_sha256: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     byte_size: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
+    # Page classification (Phase 3.2 fix - persisted instead of in-memory)
+    page_type: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    classification_confidence: Mapped[Optional[float]] = mapped_column(Integer, nullable=True)  # stored as int * 1000
+    classified_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
     project: Mapped["ProjectTable"] = relationship("ProjectTable", back_populates="pages")
 
 

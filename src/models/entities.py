@@ -51,6 +51,11 @@ class Page(BaseModel):
     image_sha256: Optional[str] = Field(default=None, description="SHA256 hash of image bytes")
     byte_size: Optional[int] = Field(default=None, description="File size in bytes")
 
+    # Page classification (Phase 3.2 fix - persisted instead of in-memory)
+    page_type: Optional[str] = Field(default=None, description="Page type classification: plan, schedule, notes, legend, detail, unknown")
+    classification_confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0, description="Classification confidence score")
+    classified_at: Optional[datetime] = Field(default=None, description="When the page was classified")
+
     model_config = {"from_attributes": True}
 
 
