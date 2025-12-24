@@ -13,30 +13,36 @@ logger = get_logger(__name__)
 
 # Classification prompt
 CLASSIFIER_SYSTEM_PROMPT = """You are a construction plan page classifier.
-Your task is to classify the type of page shown in the image.
 
-Page types:
-- plan: A floor plan, site plan, or architectural layout showing rooms, walls, and spaces
-- schedule: A table or schedule listing items (door schedule, room schedule, finish schedule)
-- notes: A page of written notes, specifications, or general instructions
-- legend: A legend or key explaining symbols used in the drawings
-- detail: A detailed section or construction detail drawing
-- unknown: Cannot determine the page type
+Goal:
+Classify the page into exactly one of these types:
+plan, schedule, notes, legend, detail
 
-Output ONLY a valid JSON object with these fields:
+Important:
+- 'unknown' is allowed ONLY if the page is unreadable or essentially blank.
+- If the page is readable but mixed (plan + notes + title block), choose the DOMINANT type and lower confidence.
+
+Definitions:
+- plan: spatial layout is primary (rooms, walls, circulation), even if notes/title block are present.
+- schedule: table/grid is primary.
+- notes: paragraphs/lists of text are primary.
+- legend: symbols with explanations are primary.
+- detail: zoomed construction details/sections/callouts are primary.
+
+Output ONLY valid JSON:
 {
-    "page_type": "<one of: plan, schedule, notes, legend, detail, unknown>",
-    "confidence": <float 0.0 to 1.0>,
-    "reasoning": "<brief explanation>"
+  "page_type": "plan|schedule|notes|legend|detail",
+  "confidence": 0.0-1.0,
+  "evidence": ["observable cues"]
 }
 
-Be conservative. If uncertain, use "unknown" with lower confidence.
+Rules:
+- Always choose one of the five types if the page is readable.
+- Express uncertainty via confidence, NOT via 'unknown'.
+- No markdown, no extra keys.
 """
 
-CLASSIFIER_USER_PROMPT = """Classify this construction document page.
-What type of page is this?
-
-Return ONLY a JSON object with page_type, confidence, and reasoning."""
+CLASSIFIER_USER_PROMPT = """Classify this construction document page. Return ONLY JSON."""
 
 
 def _confidence_to_level(confidence: float) -> ConfidenceLevel:
@@ -75,25 +81,35 @@ class PageClassifier:
         try:
             response = await self.client.analyze_image(
                 image_bytes=image_bytes,
+                prompt=CLASSIFIER_USER_PROMPT,
+                model="gpt-5.2-pro",
                 system_prompt=CLASSIFIER_SYSTEM_PROMPT,
-                user_prompt=CLASSIFIER_USER_PROMPT,
             )
 
             # Parse response
             result = json.loads(response)
-            page_type_str = result.get("page_type", "unknown").lower()
+            page_type_str = result.get("page_type", "detail").lower()
             confidence = float(result.get("confidence", 0.5))
 
-            # Map to enum
+            # Map to enum - fallback to DETAIL (not UNKNOWN) for invalid types
             try:
                 page_type = PageType(page_type_str)
+                # If model returned unknown for a readable page, downgrade to detail
+                if page_type == PageType.UNKNOWN:
+                    logger.warning(
+                        "classifier_returned_unknown_downgrading_to_detail",
+                        page_id=str(page_id),
+                    )
+                    page_type = PageType.DETAIL
+                    confidence = min(confidence, 0.2)
             except ValueError:
                 logger.warning(
-                    "invalid_page_type",
+                    "invalid_page_type_fallback_to_detail",
                     page_id=str(page_id),
                     received=page_type_str,
                 )
-                page_type = PageType.UNKNOWN
+                page_type = PageType.DETAIL
+                confidence = 0.2
 
             classification = PageClassification(
                 page_id=page_id,
@@ -113,21 +129,27 @@ class PageClassifier:
 
         except json.JSONDecodeError as e:
             logger.error(
-                "classifier_invalid_json",
+                "classifier_parse_fallback",
                 page_id=str(page_id),
                 error=str(e),
             )
-            # Return unknown with low confidence on parse error
+            # Fallback to detail with low confidence - do NOT return unknown
             return PageClassification(
                 page_id=page_id,
-                page_type=PageType.UNKNOWN,
-                confidence=0.0,
+                page_type=PageType.DETAIL,
+                confidence=0.2,
                 confidence_level=ConfidenceLevel.LOW,
             )
         except Exception as e:
             logger.error(
-                "classifier_error",
+                "classifier_error_fallback",
                 page_id=str(page_id),
                 error=str(e),
             )
-            raise
+            # Do NOT raise - fallback to detail to avoid blocking pipeline
+            return PageClassification(
+                page_id=page_id,
+                page_type=PageType.DETAIL,
+                confidence=0.2,
+                confidence_level=ConfidenceLevel.LOW,
+            )
