@@ -5,12 +5,18 @@
 
 ## Release Summary
 
-| Version | Phase | Status | Tests |
-|---------|-------|--------|-------|
-| v1.0.0 | Phase 1 — Visual Guide Generation | COMPLETE | 38 |
-| v1.1.0 | Phase 1.5 — SaaS Hardening | COMPLETE | 66 |
-| v2.0.0 | Phase 2 — Extraction and Query | COMPLETE | 98 |
-| v3.0.0 | Phase 3 — Render | COMPLETE | 148 |
+| Version | Phase | Status |
+|---------|-------|--------|
+| v1.0.0 | Phase 1 — Visual Guide Generation | COMPLETE |
+| v1.1.0 | Phase 1.5 — SaaS Hardening | COMPLETE |
+| v2.0.0 | Phase 2 — Extraction and Query | COMPLETE |
+| v3.0.0 | Phase 3 — Render | COMPLETE |
+
+### Test Gate
+
+Run `./scripts/test_summary.sh` to verify test counts. Do not hardcode.
+
+**Last verified:** Run script for current counts.
 
 ---
 
