@@ -176,6 +176,21 @@ class ExtractionStatus(str, Enum):
     FAILED = "failed"
 
 
+class ExtractionPolicy(str, Enum):
+    """Extraction policy based on guide availability.
+
+    CONSERVATIVE: Default for stable guide - reject LOW confidence extractions.
+    RELAXED: For provisional_only mode - include LOW confidence but mark clearly.
+
+    Invariants (apply to both):
+    - Never invent objects not visible in the image
+    - Never disambiguate arbitrarily
+    - Ambiguity must be explicit (ambiguous=true)
+    """
+    CONSERVATIVE = "conservative"
+    RELAXED = "relaxed"
+
+
 class PageClassification(BaseModel):
     """Classification result for a page."""
     page_id: UUID

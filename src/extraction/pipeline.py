@@ -11,6 +11,7 @@ from src.storage import get_db, PageRepository, FileStorage
 from src.models.entities import (
     ExtractionStatus,
     ExtractionJob,
+    ExtractionPolicy,
     PageClassification,
     PageType,
     ConfidenceLevel,
@@ -31,9 +32,18 @@ _page_classifications: dict[UUID, PageClassification] = {}
 _extracted_objects: dict[UUID, list[Union[ExtractedRoom, ExtractedDoor, ExtractedScheduleTable]]] = {}
 
 
-async def run_extraction(project_id: UUID, job: ExtractionJob) -> None:
+async def run_extraction(
+    project_id: UUID,
+    job: ExtractionJob,
+    policy: ExtractionPolicy = ExtractionPolicy.CONSERVATIVE,
+) -> None:
     """
     Run the full extraction pipeline.
+
+    Args:
+        project_id: Project to extract from
+        job: Extraction job for status tracking
+        policy: CONSERVATIVE (stable guide) or RELAXED (provisional_only mode)
 
     Steps:
     1. classify_pages - Classify all pages by type
@@ -44,8 +54,8 @@ async def run_extraction(project_id: UUID, job: ExtractionJob) -> None:
         # Step 1: Classify pages
         await _run_classify_pages(project_id, job)
 
-        # Step 2: Extract objects
-        await _run_extract_objects(project_id, job)
+        # Step 2: Extract objects (pass policy for threshold control)
+        await _run_extract_objects(project_id, job, policy)
 
         # Step 3: Build index
         await _run_build_index(project_id, job)
@@ -138,15 +148,25 @@ async def _run_classify_pages(project_id: UUID, job: ExtractionJob) -> None:
     _update_step_status(job, "classify_pages", ExtractionStatus.COMPLETED)
 
 
-async def _run_extract_objects(project_id: UUID, job: ExtractionJob) -> None:
+async def _run_extract_objects(
+    project_id: UUID,
+    job: ExtractionJob,
+    policy: ExtractionPolicy,
+) -> None:
     """Step 2: Extract objects based on page type."""
     job.current_step = "extract_objects"
     _update_step_status(job, "extract_objects", ExtractionStatus.RUNNING)
 
     storage = FileStorage()
-    room_extractor = RoomExtractor()
-    door_extractor = DoorExtractor()
+    room_extractor = RoomExtractor(policy=policy)
+    door_extractor = DoorExtractor(policy=policy)
     schedule_extractor = ScheduleExtractor()
+
+    logger.info(
+        "extract_objects_started",
+        project_id=str(project_id),
+        policy=policy.value,
+    )
 
     async with get_db() as db:
         page_repo = PageRepository(db)
@@ -179,6 +199,7 @@ async def _run_extract_objects(project_id: UUID, job: ExtractionJob) -> None:
                         page_id=str(page.id),
                         room_count=len(rooms),
                         door_count=len(doors),
+                        policy=policy.value,
                     )
 
                 elif classification.page_type == PageType.SCHEDULE:

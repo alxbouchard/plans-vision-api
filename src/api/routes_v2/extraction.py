@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.logging import get_logger
 from src.storage import get_db, ProjectRepository, PageRepository, VisualGuideRepository, FileStorage
 from src.api.dependencies import get_db_session, get_file_storage
-from src.models.entities import ExtractionStatus, ExtractionJob, ExtractionStepStatus
+from src.models.entities import ExtractionStatus, ExtractionJob, ExtractionStepStatus, ExtractionPolicy
 from src.models.schemas_v2 import (
     SCHEMA_VERSION_V2,
     ExtractionStartResponse,
@@ -79,6 +79,21 @@ async def start_extraction(
                 recoverable=True,
             )
 
+        # Determine extraction policy based on guide state
+        # RELAXED: provisional exists but no stable (provisional_only mode)
+        # CONSERVATIVE: stable guide exists (default)
+        has_provisional = guide.provisional is not None
+        has_stable = guide.stable is not None
+        extraction_policy = ExtractionPolicy.RELAXED if (has_provisional and not has_stable) else ExtractionPolicy.CONSERVATIVE
+
+        logger.info(
+            "extraction_policy_determined",
+            project_id=str(project_id),
+            policy=extraction_policy.value,
+            has_provisional=has_provisional,
+            has_stable=has_stable,
+        )
+
         # Check if extraction already running
         existing_job = _extraction_jobs.get(project_id)
         if existing_job and existing_job.overall_status == ExtractionStatus.RUNNING:
@@ -102,8 +117,8 @@ async def start_extraction(
         )
         _extraction_jobs[project_id] = job
 
-        # Start extraction in background
-        background_tasks.add_task(_run_extraction_pipeline, project_id, job.id)
+        # Start extraction in background with policy
+        background_tasks.add_task(_run_extraction_pipeline, project_id, job.id, extraction_policy)
 
         logger.info(
             "extraction_started",
@@ -287,7 +302,7 @@ async def get_page_overlay(
     )
 
 
-async def _run_extraction_pipeline(project_id: UUID, job_id: UUID) -> None:
+async def _run_extraction_pipeline(project_id: UUID, job_id: UUID, policy: ExtractionPolicy) -> None:
     """Run the extraction pipeline in background."""
     from src.extraction.pipeline import run_extraction
 
@@ -296,7 +311,7 @@ async def _run_extraction_pipeline(project_id: UUID, job_id: UUID) -> None:
         return
 
     try:
-        await run_extraction(project_id, job)
+        await run_extraction(project_id, job, policy)
     except Exception as e:
         logger.error(
             "extraction_failed",

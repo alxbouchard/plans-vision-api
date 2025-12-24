@@ -8,6 +8,13 @@ Per TEST_GATES_PHASE2.md Gate E:
 Per PHASE2_DECISIONS.md:
 - Output geometry is bbox only in Phase 2.0
 - Prefer false negatives over false positives
+
+Extraction Policy:
+- CONSERVATIVE (stable guide): reject LOW confidence doors
+- RELAXED (provisional_only): allow LOW confidence ONLY if:
+  a) door_number is explicitly provided by model (not arc-only inference)
+  b) has valid bbox geometry
+  Results carry: extraction_policy="relaxed", guide_source="provisional"
 """
 
 from __future__ import annotations
@@ -17,7 +24,7 @@ from uuid import UUID
 from typing import Optional
 
 from src.logging import get_logger
-from src.models.entities import ConfidenceLevel, DoorType, ExtractedDoor, Geometry
+from src.models.entities import ConfidenceLevel, DoorType, ExtractionPolicy, ExtractedDoor, Geometry
 from src.agents.client import VisionClient
 from .id_generator import generate_door_id
 
@@ -89,8 +96,13 @@ def _parse_door_type(door_type_str: Optional[str]) -> str:
 class DoorExtractor:
     """Extracts door objects from plan pages."""
 
-    def __init__(self, client: Optional[VisionClient] = None):
+    def __init__(
+        self,
+        client: Optional[VisionClient] = None,
+        policy: ExtractionPolicy = ExtractionPolicy.CONSERVATIVE,
+    ):
         self.client = client or VisionClient()
+        self.policy = policy
 
     async def extract(
         self,
@@ -133,16 +145,35 @@ class DoorExtractor:
                     confidence = float(door.get("confidence", 0.5))
                     confidence_level = _confidence_to_level(confidence)
 
-                    # Skip low confidence doors (per conservative extraction)
-                    if confidence_level == ConfidenceLevel.LOW:
-                        logger.debug(
-                            "skipping_low_confidence_door",
-                            page_id=str(page_id),
-                            confidence=confidence,
-                        )
-                        continue
-
                     door_number = door.get("door_number")
+
+                    # Confidence filtering based on policy
+                    if confidence_level == ConfidenceLevel.LOW:
+                        if self.policy == ExtractionPolicy.CONSERVATIVE:
+                            # CONSERVATIVE: always skip LOW confidence
+                            logger.debug(
+                                "skipping_low_confidence_door_conservative",
+                                page_id=str(page_id),
+                                confidence=confidence,
+                            )
+                            continue
+                        elif self.policy == ExtractionPolicy.RELAXED:
+                            # RELAXED: allow LOW only if door_number is explicitly provided
+                            # (not arc-only inference - model must have provided the number)
+                            if not door_number:
+                                logger.debug(
+                                    "skipping_low_confidence_door_relaxed_no_number",
+                                    page_id=str(page_id),
+                                    confidence=confidence,
+                                )
+                                continue
+                            # Valid for RELAXED extraction
+                            logger.info(
+                                "accepting_low_confidence_door_relaxed",
+                                page_id=str(page_id),
+                                door_number=door_number,
+                                confidence=confidence,
+                            )
                     door_type = _parse_door_type(door.get("door_type"))
 
                     # Build label
@@ -164,6 +195,12 @@ class DoorExtractor:
                         bbox=[x, y, w, h],
                     )
 
+                    # Build sources list - add policy info for RELAXED
+                    sources = ["symbol_detected"]
+                    if self.policy == ExtractionPolicy.RELAXED:
+                        sources.append("extraction_policy:relaxed")
+                        sources.append("guide_source:provisional")
+
                     # Create extracted door
                     extracted = ExtractedDoor(
                         id=object_id,
@@ -172,7 +209,7 @@ class DoorExtractor:
                         geometry=geometry,
                         confidence=confidence,
                         confidence_level=confidence_level,
-                        sources=["symbol_detected"],
+                        sources=sources,
                         door_type=door_type,
                     )
                     extracted_doors.append(extracted)
@@ -184,6 +221,7 @@ class DoorExtractor:
                         door_number=door_number,
                         door_type=door_type,
                         confidence=confidence,
+                        policy=self.policy.value,
                     )
 
                 except Exception as e:
@@ -199,6 +237,7 @@ class DoorExtractor:
                 "doors_extracted",
                 page_id=str(page_id),
                 count=len(extracted_doors),
+                policy=self.policy.value,
             )
 
             return extracted_doors

@@ -644,3 +644,209 @@ class TestPhase32_PageTypePersistence:
             assert page_after is not None
             assert page_after.page_type == "plan"
             assert page_after.page_type != "unknown"
+
+
+# =============================================================================
+# Phase 3.2 Regression: RELAXED extraction policy
+# =============================================================================
+
+class TestPhase32_RelaxedExtractionPolicy:
+    """
+    Phase 3.2 Regression: RELAXED extraction policy for provisional_only mode.
+
+    Rules for RELAXED policy:
+    - Room: allow LOW confidence only if room_number is 2-4 digit token
+    - Door: allow LOW confidence only if door_number is explicitly provided
+    - All results must carry extraction_policy:relaxed and guide_source:provisional
+    - CONSERVATIVE must never accept LOW confidence
+    """
+
+    @pytest.mark.asyncio
+    async def test_extraction_policy_enum_values(self):
+        """Test ExtractionPolicy enum has required values."""
+        from src.models.entities import ExtractionPolicy
+        assert ExtractionPolicy.CONSERVATIVE.value == "conservative"
+        assert ExtractionPolicy.RELAXED.value == "relaxed"
+
+    @pytest.mark.asyncio
+    async def test_room_extractor_conservative_rejects_low_confidence(self):
+        """Test CONSERVATIVE policy rejects LOW confidence rooms."""
+        from src.extraction.room_extractor import RoomExtractor
+        from src.models.entities import ExtractionPolicy
+        from unittest.mock import AsyncMock
+
+        page_id = uuid4()
+
+        # Mock client response with LOW confidence room
+        mock_client = AsyncMock()
+        mock_client.analyze_image.return_value = '''{"rooms": [
+            {"room_number": "203", "room_name": "CLASSE", "bbox": [100, 200, 300, 150], "confidence": 0.3}
+        ]}'''
+
+        extractor = RoomExtractor(client=mock_client, policy=ExtractionPolicy.CONSERVATIVE)
+        results = await extractor.extract(page_id, b"fake_image_bytes")
+
+        # CONSERVATIVE should reject LOW confidence (0.3 < 0.5)
+        assert len(results) == 0
+
+    @pytest.mark.asyncio
+    async def test_room_extractor_relaxed_accepts_low_confidence_with_digit_token(self):
+        """Test RELAXED policy accepts LOW confidence if room_number is 2-4 digit token."""
+        from src.extraction.room_extractor import RoomExtractor
+        from src.models.entities import ExtractionPolicy, ConfidenceLevel
+        from unittest.mock import AsyncMock
+
+        page_id = uuid4()
+
+        # Mock client response with LOW confidence room but valid digit token
+        mock_client = AsyncMock()
+        mock_client.analyze_image.return_value = '''{"rooms": [
+            {"room_number": "203", "room_name": "CLASSE", "bbox": [100, 200, 300, 150], "confidence": 0.3}
+        ]}'''
+
+        extractor = RoomExtractor(client=mock_client, policy=ExtractionPolicy.RELAXED)
+        results = await extractor.extract(page_id, b"fake_image_bytes")
+
+        # RELAXED should accept because "203" is a valid 3-digit token
+        assert len(results) == 1
+        assert results[0].room_number == "203"
+        assert results[0].confidence_level == ConfidenceLevel.LOW
+        assert "extraction_policy:relaxed" in results[0].sources
+        assert "guide_source:provisional" in results[0].sources
+
+    @pytest.mark.asyncio
+    async def test_room_extractor_relaxed_rejects_low_confidence_non_digit_token(self):
+        """Test RELAXED policy rejects LOW confidence if room_number is not 2-4 digit token."""
+        from src.extraction.room_extractor import RoomExtractor
+        from src.models.entities import ExtractionPolicy
+        from unittest.mock import AsyncMock
+
+        page_id = uuid4()
+
+        # Mock client response with LOW confidence and non-digit room_number
+        mock_client = AsyncMock()
+        mock_client.analyze_image.return_value = '''{"rooms": [
+            {"room_number": "A-101", "room_name": "BUREAU", "bbox": [100, 200, 300, 150], "confidence": 0.3}
+        ]}'''
+
+        extractor = RoomExtractor(client=mock_client, policy=ExtractionPolicy.RELAXED)
+        results = await extractor.extract(page_id, b"fake_image_bytes")
+
+        # RELAXED should reject because "A-101" is not a digit-only token
+        assert len(results) == 0
+
+    @pytest.mark.asyncio
+    async def test_door_extractor_conservative_rejects_low_confidence(self):
+        """Test CONSERVATIVE policy rejects LOW confidence doors."""
+        from src.extraction.door_extractor import DoorExtractor
+        from src.models.entities import ExtractionPolicy
+        from unittest.mock import AsyncMock
+
+        page_id = uuid4()
+
+        # Mock client response with LOW confidence door
+        mock_client = AsyncMock()
+        mock_client.analyze_image.return_value = '''{"doors": [
+            {"door_number": "D1", "door_type": "single", "bbox": [150, 300, 30, 40], "confidence": 0.3}
+        ]}'''
+
+        extractor = DoorExtractor(client=mock_client, policy=ExtractionPolicy.CONSERVATIVE)
+        results = await extractor.extract(page_id, b"fake_image_bytes")
+
+        # CONSERVATIVE should reject LOW confidence
+        assert len(results) == 0
+
+    @pytest.mark.asyncio
+    async def test_door_extractor_relaxed_accepts_low_confidence_with_door_number(self):
+        """Test RELAXED policy accepts LOW confidence if door_number is explicitly provided."""
+        from src.extraction.door_extractor import DoorExtractor
+        from src.models.entities import ExtractionPolicy, ConfidenceLevel
+        from unittest.mock import AsyncMock
+
+        page_id = uuid4()
+
+        # Mock client response with LOW confidence door but with explicit door_number
+        mock_client = AsyncMock()
+        mock_client.analyze_image.return_value = '''{"doors": [
+            {"door_number": "D1", "door_type": "single", "bbox": [150, 300, 30, 40], "confidence": 0.3}
+        ]}'''
+
+        extractor = DoorExtractor(client=mock_client, policy=ExtractionPolicy.RELAXED)
+        results = await extractor.extract(page_id, b"fake_image_bytes")
+
+        # RELAXED should accept because door_number is explicitly provided
+        assert len(results) == 1
+        assert results[0].label == "D1"
+        assert results[0].confidence_level == ConfidenceLevel.LOW
+        assert "extraction_policy:relaxed" in results[0].sources
+        assert "guide_source:provisional" in results[0].sources
+
+    @pytest.mark.asyncio
+    async def test_door_extractor_relaxed_rejects_low_confidence_without_door_number(self):
+        """Test RELAXED policy rejects LOW confidence if no door_number (arc-only)."""
+        from src.extraction.door_extractor import DoorExtractor
+        from src.models.entities import ExtractionPolicy
+        from unittest.mock import AsyncMock
+
+        page_id = uuid4()
+
+        # Mock client response with LOW confidence door but no door_number (arc-only)
+        mock_client = AsyncMock()
+        mock_client.analyze_image.return_value = '''{"doors": [
+            {"door_number": null, "door_type": "single", "bbox": [150, 300, 30, 40], "confidence": 0.3}
+        ]}'''
+
+        extractor = DoorExtractor(client=mock_client, policy=ExtractionPolicy.RELAXED)
+        results = await extractor.extract(page_id, b"fake_image_bytes")
+
+        # RELAXED should reject because no door_number (arc-only inference)
+        assert len(results) == 0
+
+    @pytest.mark.asyncio
+    async def test_room_extractor_high_confidence_accepted_any_policy(self):
+        """Test HIGH confidence rooms accepted regardless of policy."""
+        from src.extraction.room_extractor import RoomExtractor
+        from src.models.entities import ExtractionPolicy, ConfidenceLevel
+        from unittest.mock import AsyncMock
+
+        page_id = uuid4()
+
+        # Mock client response with HIGH confidence room
+        mock_client = AsyncMock()
+        mock_client.analyze_image.return_value = '''{"rooms": [
+            {"room_number": "A-101", "room_name": "BUREAU", "bbox": [100, 200, 300, 150], "confidence": 0.95}
+        ]}'''
+
+        # Test with CONSERVATIVE
+        extractor_cons = RoomExtractor(client=mock_client, policy=ExtractionPolicy.CONSERVATIVE)
+        results_cons = await extractor_cons.extract(page_id, b"fake_image_bytes")
+        assert len(results_cons) == 1
+        assert results_cons[0].confidence_level == ConfidenceLevel.HIGH
+        # CONSERVATIVE should NOT have policy markers
+        assert "extraction_policy:relaxed" not in results_cons[0].sources
+
+        # Test with RELAXED
+        extractor_rel = RoomExtractor(client=mock_client, policy=ExtractionPolicy.RELAXED)
+        results_rel = await extractor_rel.extract(page_id, b"fake_image_bytes")
+        assert len(results_rel) == 1
+        assert results_rel[0].confidence_level == ConfidenceLevel.HIGH
+        # RELAXED should have policy markers even for HIGH confidence
+        assert "extraction_policy:relaxed" in results_rel[0].sources
+        assert "guide_source:provisional" in results_rel[0].sources
+
+    @pytest.mark.asyncio
+    async def test_is_valid_relaxed_room_number(self):
+        """Test the room number validation for RELAXED policy."""
+        from src.extraction.room_extractor import _is_valid_relaxed_room_number
+
+        # Valid: 2-4 digit tokens
+        assert _is_valid_relaxed_room_number("12") is True
+        assert _is_valid_relaxed_room_number("203") is True
+        assert _is_valid_relaxed_room_number("1001") is True
+
+        # Invalid: too short, too long, non-digit
+        assert _is_valid_relaxed_room_number("1") is False  # 1 digit
+        assert _is_valid_relaxed_room_number("12345") is False  # 5 digits
+        assert _is_valid_relaxed_room_number("A-101") is False  # contains letters
+        assert _is_valid_relaxed_room_number("") is False
+        assert _is_valid_relaxed_room_number(None) is False  # type: ignore

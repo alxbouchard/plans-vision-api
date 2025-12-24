@@ -123,15 +123,22 @@ It is a **runtime operating mode** activated when a stable guide cannot be gener
 - Phase 2 extraction using the provisional guide ✅
 - Query endpoints remain available ✅
 - Render endpoints remain available ✅
-- All results MUST include:
-  - `guide_source = "provisional"` (TODO: add to extraction)
+- All results include `guide_source="provisional"` and `extraction_policy="relaxed"` ✅
+
+### RELAXED Extraction Policy (provisional_only mode)
+- `ExtractionPolicy.RELAXED` activated when `has_provisional=true && has_stable=false`
+- Room extraction: allow LOW confidence only if room_number is 2-4 digit token
+- Door extraction: allow LOW confidence only if door_number is explicitly provided (no arc-only)
+- All results carry `extraction_policy:relaxed` and `guide_source:provisional` in sources
+- CONSERVATIVE policy unchanged for stable guide mode
+- 10 regression tests added (`TestPhase32_RelaxedExtractionPolicy`)
 
 ### Constraints (Non-Negotiable)
 - No hardcoded semantics
 - No arbitrary disambiguation
 - Ambiguity MUST be explicit (`ambiguous=true`)
-- No low-confidence extraction
-- Conservative extraction rules ALWAYS apply
+- RELAXED policy only lowers threshold for explicitly labeled objects
+- Never invent, never disambiguate arbitrarily
 
 ### Purpose
 Support **small plan sets and addenda (2–5 pages)** that are:
