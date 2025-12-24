@@ -10,7 +10,7 @@
 | v1.0.0 | Phase 1 — Visual Guide Generation | COMPLETE | 38 |
 | v1.1.0 | Phase 1.5 — SaaS Hardening | COMPLETE | 66 |
 | v2.0.0 | Phase 2 — Extraction and Query | COMPLETE | 98 |
-| v3.0.0 | Phase 3 — Render | COMPLETE | 137 |
+| v3.0.0 | Phase 3 — Render | COMPLETE | 148 |
 
 ---
 
@@ -90,6 +90,10 @@
   - PageClassifier with vision model integration
   - Classification persistence and retrieval
   - Gate A tests passing
+  - **Bugfix (df8f5eb)**: PageClassifier never returns UNKNOWN for readable pages
+    - Fallback to DETAIL with confidence=0.2 on errors
+    - Express uncertainty via confidence, not via UNKNOWN type
+    - 11 regression tests added
 
 - **Extraction pipeline**
   - POST /v2/projects/{id}/extract endpoint
