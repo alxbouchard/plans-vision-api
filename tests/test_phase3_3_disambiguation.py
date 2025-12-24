@@ -439,3 +439,27 @@ class TestAmbiguityHandling:
 
         # Should NOT extract as room
         assert len(rooms) == 0
+
+
+# =============================================================================
+# Gate 3: Feature flag safety (Ticket 1)
+# =============================================================================
+
+class TestGate3_FeatureFlag:
+    """Test that Phase 3.3 feature flag defaults to False."""
+
+    def test_feature_flag_default_false(self):
+        """ENABLE_PHASE3_3_SPATIAL_LABELING must default to False."""
+        from src.config import Settings
+
+        # Create fresh settings (not cached) to test defaults
+        settings = Settings()
+        assert settings.enable_phase3_3_spatial_labeling is False
+
+    def test_feature_flag_can_be_enabled(self, monkeypatch):
+        """Feature flag can be enabled via environment variable."""
+        from src.config import Settings
+
+        monkeypatch.setenv("ENABLE_PHASE3_3_SPATIAL_LABELING", "true")
+        settings = Settings()
+        assert settings.enable_phase3_3_spatial_labeling is True

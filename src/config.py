@@ -85,6 +85,12 @@ class Settings(BaseSettings):
         description="Maximum image width/height in pixels"
     )
 
+    # Phase 3.3: Spatial Room Labeling
+    enable_phase3_3_spatial_labeling: bool = Field(
+        default=False,
+        description="Enable Phase 3.3 spatial room labeling (text block detection)"
+    )
+
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8",
