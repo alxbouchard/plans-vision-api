@@ -245,10 +245,35 @@ class ExtractedObject(BaseModel):
 
 
 class ExtractedRoom(ExtractedObject):
-    """A room extracted from a plan page."""
+    """A room extracted from a plan page.
+
+    Phase 3.3 additions:
+    - label_bbox: bbox around the label text block (always present)
+    - room_region_bbox: bbox enclosing inferred room region (nullable)
+    - ambiguity: true if evidence is insufficient
+    - ambiguity_reason: explanation when ambiguous
+    """
     type: ObjectType = ObjectType.ROOM
     room_number: Optional[str] = Field(default=None)
     room_name: Optional[str] = Field(default=None)
+
+    # Phase 3.3: Spatial labeling fields
+    label_bbox: Optional[list[int]] = Field(
+        default=None,
+        description="Bounding box around the label text block [x, y, w, h]"
+    )
+    room_region_bbox: Optional[list[int]] = Field(
+        default=None,
+        description="Bounding box enclosing inferred room region, null if not inferable"
+    )
+    ambiguity: bool = Field(
+        default=False,
+        description="True if evidence is insufficient to confidently identify as room"
+    )
+    ambiguity_reason: Optional[str] = Field(
+        default=None,
+        description="Explanation when ambiguity=true"
+    )
 
 
 class ExtractedDoor(ExtractedObject):

@@ -154,3 +154,13 @@ Ambiguous response
   "recoverable": true
 }
 ```
+
+## Internal-Only Fields (Not in API Responses)
+
+Phase 3.3 added the following fields to internal `ExtractedRoom` model:
+- `label_bbox` — bounding box of the label text block
+- `room_region_bbox` — inferred room region (nullable)
+- `ambiguity` — true if evidence insufficient
+- `ambiguity_reason` — explanation when ambiguous
+
+These are used for internal disambiguation logic only. The overlay and query endpoints do NOT expose these fields.
