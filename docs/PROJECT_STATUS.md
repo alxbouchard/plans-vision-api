@@ -229,4 +229,32 @@ Phase 4+ features require explicit user approval:
 3. Read docs/TEST_GATES_RENDER.md
 4. Read this file (PROJECT_STATUS.md)
 
+
+## Phase 3.2 — Provisional Mode (ACTIVE WHEN STABLE GUIDE IS REJECTED)
+
+This is not a new development phase. It is a runtime operating mode.
+
+Trigger condition:
+- Analyze completes with: has_provisional=true AND has_stable=false
+- And stable guide is rejected due to insufficient stable_ratio
+
+Expected status behavior:
+- Do NOT mark the project as "failed".
+- Mark the project as "provisional_only" (stable rejected, provisional available).
+- Provide rejection_reason for the stable guide.
+
+What is allowed in provisional_only:
+- Phase 2 extraction is allowed using the provisional guide (conservative policy).
+- Query and render are allowed, but results must clearly indicate guide_source="provisional".
+
+Constraints:
+- No hardcoded semantics.
+- No arbitrary disambiguation (return ambiguous=true when needed).
+- No low-confidence extraction in provisional_only.
+
+Purpose:
+Support small addenda sets (e.g., 2–5 pages) that are usable for locating specific elements even when cross-page conventions are not stable enough to produce a stable guide.
+
+
+
 **Any Phase 4 work requires explicit user approval and a new feature document.**
