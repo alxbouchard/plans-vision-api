@@ -463,3 +463,124 @@ class TestGate3_FeatureFlag:
         monkeypatch.setenv("ENABLE_PHASE3_3_SPATIAL_LABELING", "true")
         settings = Settings()
         assert settings.enable_phase3_3_spatial_labeling is True
+
+
+# =============================================================================
+# Ticket 3: TextBlock type
+# =============================================================================
+
+class TestTextBlockType:
+    """Test TextBlock type validation."""
+
+    def test_text_block_valid(self):
+        """TextBlock with valid bbox and text is accepted."""
+        from src.extraction.text_block_detector import TextBlock
+
+        block = TextBlock(
+            bbox=[100, 200, 150, 50],
+            text="CLASSE 203",
+            confidence=0.9,
+        )
+        assert block.bbox == [100, 200, 150, 50]
+        assert block.text == "CLASSE 203"
+        assert block.confidence == 0.9
+
+    def test_text_block_requires_4_element_bbox(self):
+        """TextBlock bbox must have exactly 4 elements."""
+        from src.extraction.text_block_detector import TextBlock
+        import pydantic
+
+        with pytest.raises(pydantic.ValidationError):
+            TextBlock(bbox=[100, 200], text="test", confidence=0.9)
+
+    def test_text_block_requires_non_empty_text(self):
+        """TextBlock text must not be empty."""
+        from src.extraction.text_block_detector import TextBlock
+        import pydantic
+
+        with pytest.raises(pydantic.ValidationError):
+            TextBlock(bbox=[100, 200, 150, 50], text="", confidence=0.9)
+
+
+# =============================================================================
+# Ticket 4: TextBlockDetector stub
+# =============================================================================
+
+class TestTextBlockDetectorStub:
+    """Test TextBlockDetector stub returns empty list."""
+
+    def test_detector_is_callable(self):
+        """TextBlockDetector.detect must be callable."""
+        from src.extraction.text_block_detector import TextBlockDetector
+
+        detector = TextBlockDetector()
+        assert callable(detector.detect)
+
+    @pytest.mark.asyncio
+    async def test_detector_returns_list(self):
+        """TextBlockDetector.detect returns a list."""
+        from src.extraction.text_block_detector import TextBlockDetector
+
+        detector = TextBlockDetector()
+        result = await detector.detect(page_id=uuid4(), image_bytes=b"fake")
+        assert isinstance(result, list)
+
+    @pytest.mark.asyncio
+    async def test_stub_returns_empty_list(self):
+        """Stub implementation returns empty list (no vision call)."""
+        from src.extraction.text_block_detector import TextBlockDetector
+
+        detector = TextBlockDetector()
+        result = await detector.detect(page_id=uuid4(), image_bytes=b"fake")
+        assert result == []
+
+
+# =============================================================================
+# Ticket 2 & 6: Pipeline hook behind feature flag
+# =============================================================================
+
+class TestPipelineHook:
+    """Test that Phase 3.3 hook is in pipeline and respects feature flag."""
+
+    def test_phase3_3_hook_exists_in_pipeline(self):
+        """Pipeline has a Phase 3.3 spatial labeling hook point."""
+        from src.extraction.pipeline import _run_phase3_3_spatial_labeling
+        assert callable(_run_phase3_3_spatial_labeling)
+
+    @pytest.mark.asyncio
+    async def test_hook_skipped_when_flag_false(self, monkeypatch):
+        """When flag is False, Phase 3.3 hook does nothing (no model calls)."""
+        from src.extraction.pipeline import _run_phase3_3_spatial_labeling
+        from src.config import Settings
+
+        # Ensure flag is off
+        monkeypatch.setenv("ENABLE_PHASE3_3_SPATIAL_LABELING", "false")
+
+        page_id = uuid4()
+        # Should return empty list and make no calls
+        result = await _run_phase3_3_spatial_labeling(
+            page_id=page_id,
+            image_bytes=b"fake",
+            doors=[],
+            settings=Settings(),
+        )
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_hook_called_when_flag_true(self, monkeypatch):
+        """When flag is True, Phase 3.3 hook runs detector."""
+        from src.extraction.pipeline import _run_phase3_3_spatial_labeling
+        from src.config import Settings
+
+        monkeypatch.setenv("ENABLE_PHASE3_3_SPATIAL_LABELING", "true")
+
+        page_id = uuid4()
+        # Stub still returns empty, but hook should run
+        result = await _run_phase3_3_spatial_labeling(
+            page_id=page_id,
+            image_bytes=b"fake",
+            doors=[],
+            settings=Settings(),
+        )
+        # Result is list (could be empty from stub)
+        assert isinstance(result, list)

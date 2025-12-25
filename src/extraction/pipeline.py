@@ -20,10 +20,13 @@ from src.models.entities import (
     ExtractedDoor,
     ExtractedScheduleTable,
 )
+from src.config import Settings, get_settings
 from .classifier import PageClassifier
 from .room_extractor import RoomExtractor
 from .door_extractor import DoorExtractor
 from .schedule_extractor import ScheduleExtractor
+from .text_block_detector import TextBlockDetector
+from .spatial_room_labeler import SpatialRoomLabeler
 
 logger = get_logger(__name__)
 
@@ -183,22 +186,39 @@ async def _run_extract_objects(
                 if classification.page_type == PageType.PLAN:
                     # Extract rooms and doors on plan pages (Gate B, E)
                     objects = []
+                    settings = get_settings()
 
-                    # Extract rooms
-                    rooms = await room_extractor.extract(page.id, image_bytes)
-                    objects.extend(rooms)
-
-                    # Extract doors
+                    # Extract doors FIRST (needed for Phase 3.3 disambiguation)
                     doors = await door_extractor.extract(page.id, image_bytes)
                     objects.extend(doors)
 
+                    # Extract rooms (legacy extractor)
+                    rooms = await room_extractor.extract(page.id, image_bytes)
+                    objects.extend(rooms)
+
+                    # Phase 3.3: Spatial room labeling (if enabled)
+                    # Runs after doors so we can use door context for disambiguation
+                    spatial_rooms = await _run_phase3_3_spatial_labeling(
+                        page_id=page.id,
+                        image_bytes=image_bytes,
+                        doors=doors,
+                        settings=settings,
+                        policy=policy,
+                    )
+                    if spatial_rooms:
+                        objects.extend(spatial_rooms)
+
                     _extracted_objects[page.id] = objects
+
+                    # Count rooms from both extractors
+                    total_rooms = len(rooms) + len(spatial_rooms)
 
                     logger.info(
                         "plan_page_extracted",
                         page_id=str(page.id),
-                        room_count=len(rooms),
+                        room_count=total_rooms,
                         door_count=len(doors),
+                        spatial_rooms=len(spatial_rooms),
                         policy=policy.value,
                     )
 
@@ -312,3 +332,100 @@ def get_page_classification(page_id: UUID) -> Optional[PageClassification]:
 def get_extracted_objects(page_id: UUID) -> list:
     """Get extracted objects for a page."""
     return _extracted_objects.get(page_id, [])
+
+
+# =============================================================================
+# Phase 3.3: Spatial Room Labeling Hook
+# =============================================================================
+
+async def _run_phase3_3_spatial_labeling(
+    page_id: UUID,
+    image_bytes: bytes,
+    doors: list[ExtractedDoor],
+    settings: Settings,
+    policy: ExtractionPolicy = ExtractionPolicy.CONSERVATIVE,
+) -> list[ExtractedRoom]:
+    """Phase 3.3 hook: Run spatial room labeling if feature flag is enabled.
+
+    Per WORK_QUEUE_PHASE3_3.md Ticket 2:
+    - When flag is False: return empty list, zero model calls
+    - When flag is True: run text block detection and spatial labeling
+
+    Args:
+        page_id: The page ID
+        image_bytes: The image bytes
+        doors: Extracted doors for disambiguation (Ticket 9)
+        settings: Settings instance (to check feature flag)
+        policy: Extraction policy
+
+    Returns:
+        List of ExtractedRoom objects from spatial labeling
+    """
+    # Check feature flag
+    if not settings.enable_phase3_3_spatial_labeling:
+        logger.debug(
+            "phase3_3_skipped_flag_off",
+            page_id=str(page_id),
+        )
+        return []
+
+    logger.info(
+        "phase3_3_detector_called",
+        page_id=str(page_id),
+        policy=policy.value,
+    )
+
+    try:
+        # Step 1: Detect text blocks (Ticket 5 will add vision implementation)
+        detector = TextBlockDetector(use_vision=True)
+        text_blocks = await detector.detect(page_id=page_id, image_bytes=image_bytes)
+
+        logger.info(
+            "phase3_3_text_blocks_count",
+            page_id=str(page_id),
+            count=len(text_blocks),
+        )
+
+        if not text_blocks:
+            return []
+
+        # Step 2: Convert doors to door symbol format for labeler
+        door_symbols = []
+        for door in doors:
+            if hasattr(door, 'bbox') and door.bbox:
+                door_symbols.append(door)
+
+        # Step 3: Run spatial room labeler (Ticket 7)
+        labeler = SpatialRoomLabeler(policy=policy)
+        rooms = labeler.extract_rooms(
+            page_id=page_id,
+            text_blocks=text_blocks,
+            door_symbols=door_symbols,
+        )
+
+        logger.info(
+            "phase3_3_room_candidates_count",
+            page_id=str(page_id),
+            count=len(rooms),
+        )
+
+        # Filter out ambiguous rooms in conservative mode
+        if policy == ExtractionPolicy.CONSERVATIVE:
+            rooms = [r for r in rooms if not r.ambiguity]
+
+        logger.info(
+            "phase3_3_rooms_emitted_count",
+            page_id=str(page_id),
+            count=len(rooms),
+        )
+
+        return rooms
+
+    except Exception as e:
+        logger.error(
+            "phase3_3_labeling_failed",
+            page_id=str(page_id),
+            error=str(e),
+        )
+        # Per FEATURE doc: if detector fails, pipeline continues with existing extractor
+        return []
