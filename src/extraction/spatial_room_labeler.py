@@ -60,16 +60,57 @@ ROOM_NUMBER_PATTERN = re.compile(r'\b(\d{2,4}(-\d+)?)\b')
 # Pattern for letter tokens (words with letters)
 LETTER_TOKEN_PATTERN = re.compile(r'\b([A-Za-z]+)\b')
 
+# Global annotations to exclude (NOT room names)
+# These are drawing annotations, not spaces in the building
+EXCLUDED_ANNOTATIONS = {
+    # Orientation/scale
+    "NORTH", "N", "SCALE", "ECHELLE", "NTS",
+    # Detail/section markers
+    "DETAIL", "SECTION", "COUPE", "ELEVATION", "ELEV",
+    # Revision markers
+    "REV", "REVISION", "DATE", "ISSUE",
+    # Drawing info
+    "DRAWING", "SHEET", "PAGE", "PLAN", "PLANS",
+    "PROJECT", "PROJET", "CLIENT", "ARCHITECT",
+    # Grid markers (single letters A-Z used for grids)
+    "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M",
+    # Common non-room annotations
+    "NOTE", "NOTES", "LEGEND", "LEGENDE", "KEY", "SEE", "VOIR",
+    "TYPICAL", "TYP", "SIM", "SIMILAR", "EQ", "EQUAL",
+    # Dimensions
+    "MM", "CM", "M", "FT", "IN",
+}
+
+# Room type keywords that indicate this IS a room name
+# These are functional descriptors of building spaces
+ROOM_TYPE_KEYWORDS = {
+    # French room types
+    "CLASSE", "BUREAU", "CORRIDOR", "ESCALIER", "TOILETTE", "TOILETTES",
+    "SALLE", "LOCAL", "RANGEMENT", "STOCKAGE", "ENTREE", "VESTIBULE",
+    "CUISINE", "CAFETERIA", "GYMNASE", "BIBLIOTHEQUE", "LABORATOIRE",
+    "SECRETARIAT", "DIRECTION", "RECEPTION", "ATTENTE", "REPOS",
+    "MECANIQUE", "ELECTRIQUE", "JANITOR", "CONCIERGERIE",
+    # English room types
+    "CLASSROOM", "OFFICE", "HALLWAY", "STAIRWELL", "RESTROOM", "BATHROOM",
+    "ROOM", "STORAGE", "CLOSET", "ENTRY", "LOBBY", "VESTIBULE",
+    "KITCHEN", "CAFETERIA", "GYM", "GYMNASIUM", "LIBRARY", "LAB",
+    "SECRETARY", "PRINCIPAL", "RECEPTION", "WAITING", "LOUNGE",
+    "MECHANICAL", "ELECTRICAL", "JANITOR", "CUSTODIAN",
+    # Generic
+    "WC", "HC", "ACCESSIBLE",
+}
+
 
 def is_candidate_room_label(block: TextBlockLike) -> bool:
     """Determine if a text block is a candidate room label.
 
-    Per FEATURE doc Step B, a block is a candidate room label if:
-    - contains at least one token that looks like a room number (2-4 digits or digit-hyphen)
-    - AND contains at least one letter token in the same block
-    - OR shows multi-line formatting typical of room label blocks
+    A block is a candidate room label if:
+    1. It contains a known room type keyword (CLASSE, BUREAU, CORRIDOR, etc.)
+       - These are accepted even without a room number
+    2. OR it contains both a letter token AND a room number pattern
+    3. AND it is NOT an excluded annotation (NORTH, SCALE, DETAIL, etc.)
 
-    This is a format rule, NOT a hardcoded dictionary.
+    This uses keyword matching for room types but excludes drawing annotations.
 
     Args:
         block: A text block with bbox, text_lines, and confidence
@@ -78,18 +119,34 @@ def is_candidate_room_label(block: TextBlockLike) -> bool:
         True if the block is a candidate room label
     """
     # Join all text lines for analysis
-    all_text = " ".join(block.text_lines)
+    all_text = " ".join(block.text_lines).upper()
 
-    # Check for letter tokens (e.g., CLASSE, BUREAU, TOILET)
-    has_letter_token = bool(LETTER_TOKEN_PATTERN.search(all_text))
+    # Extract all letter tokens
+    letter_tokens = LETTER_TOKEN_PATTERN.findall(all_text.upper())
+
+    # Check if any token is an excluded annotation
+    for token in letter_tokens:
+        if token.upper() in EXCLUDED_ANNOTATIONS:
+            # If the ONLY token is an excluded annotation, reject
+            if len(letter_tokens) == 1:
+                return False
+
+    # Check if any token is a known room type keyword
+    for token in letter_tokens:
+        if token.upper() in ROOM_TYPE_KEYWORDS:
+            # Room type keyword found - this is a room label (with or without number)
+            return True
 
     # Check for room number pattern (2-4 digits, optionally with hyphen suffix)
     has_room_number = bool(ROOM_NUMBER_PATTERN.search(all_text))
 
+    # Check for letter tokens (at least one word with letters)
+    has_letter_token = len(letter_tokens) > 0
+
     # Multi-line with letter on one line and number on another is also a candidate
     if len(block.text_lines) >= 2:
-        first_line = block.text_lines[0]
-        second_line = block.text_lines[1] if len(block.text_lines) > 1 else ""
+        first_line = block.text_lines[0].upper()
+        second_line = block.text_lines[1].upper() if len(block.text_lines) > 1 else ""
 
         # Check if it's "CLASSE" + "203" style
         first_has_letter = bool(LETTER_TOKEN_PATTERN.search(first_line))
@@ -281,9 +338,11 @@ class SpatialRoomLabeler:
         room_number = extract_room_number(block)
         room_name = extract_room_name(block)
 
-        if not room_number:
+        # Room name alone is valid (e.g., "CORRIDOR", "ESCALIER")
+        # Room number alone is NOT valid (could be door number)
+        if not room_name:
             logger.debug(
-                "no_room_number_found",
+                "no_room_name_found",
                 page_id=str(page_id),
                 text=" ".join(block.text_lines),
             )
@@ -326,7 +385,13 @@ class SpatialRoomLabeler:
             ambiguity_reason = "Low confidence block near door symbol"
 
         # Step 7: Build the extracted room
-        label = f"{room_name} {room_number}" if room_name else room_number
+        # Label: "ROOM_NAME ROOM_NUMBER" or just "ROOM_NAME" if no number
+        if room_name and room_number:
+            label = f"{room_name} {room_number}"
+        elif room_name:
+            label = room_name
+        else:
+            label = room_number or "UNKNOWN"
 
         # Generate deterministic ID
         x, y, w, h = block.bbox

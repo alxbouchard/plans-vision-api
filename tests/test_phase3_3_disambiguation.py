@@ -302,6 +302,52 @@ class TestCandidateRoomLabelIdentification:
 
         assert is_candidate_room_label(block) is True
 
+    def test_room_name_only_is_candidate(self):
+        """Room name without number (CORRIDOR, ESCALIER) should be candidate."""
+        from src.extraction.spatial_room_labeler import is_candidate_room_label
+
+        for room_name in ["CORRIDOR", "ESCALIER", "BUREAU", "TOILETTE", "CLASSE"]:
+            block = SyntheticTextBlock(
+                bbox=[200, 150, 100, 30],
+                text_lines=[room_name],
+                confidence=0.90,
+            )
+            assert is_candidate_room_label(block) is True, f"{room_name} should be candidate"
+
+    def test_excluded_annotations_not_candidate(self):
+        """Drawing annotations (NORTH, SCALE, DETAIL) should NOT be candidates."""
+        from src.extraction.spatial_room_labeler import is_candidate_room_label
+
+        for annotation in ["NORTH", "SCALE", "DETAIL", "SECTION", "REV", "LEGEND"]:
+            block = SyntheticTextBlock(
+                bbox=[200, 150, 100, 30],
+                text_lines=[annotation],
+                confidence=0.90,
+            )
+            assert is_candidate_room_label(block) is False, f"{annotation} should be excluded"
+
+    def test_room_name_extracts_with_null_number(self):
+        """Room name only should extract with room_number=None."""
+        from src.extraction.spatial_room_labeler import SpatialRoomLabeler
+
+        block = SyntheticTextBlock(
+            bbox=[200, 150, 100, 30],
+            text_lines=["CORRIDOR"],
+            confidence=0.90,
+        )
+
+        labeler = SpatialRoomLabeler()
+        rooms = labeler.extract_rooms(
+            page_id=uuid4(),
+            text_blocks=[block],
+            door_symbols=[],
+        )
+
+        assert len(rooms) == 1
+        assert rooms[0].room_name == "CORRIDOR"
+        assert rooms[0].room_number is None
+        assert rooms[0].label == "CORRIDOR"
+
 
 # =============================================================================
 # Tests for disambiguation output
