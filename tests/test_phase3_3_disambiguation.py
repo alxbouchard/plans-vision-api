@@ -306,7 +306,8 @@ class TestCandidateRoomLabelIdentification:
         """Room name without number (CORRIDOR, ESCALIER) should be candidate."""
         from src.extraction.spatial_room_labeler import is_candidate_room_label
 
-        for room_name in ["CORRIDOR", "ESCALIER", "BUREAU", "TOILETTE", "CLASSE"]:
+        # Any text with letters >= 2 chars that's not an excluded annotation is a candidate
+        for room_name in ["CORRIDOR", "ESCALIER", "BUREAU", "TOILETTE", "CLASSE", "SERVICE DE GARDE"]:
             block = SyntheticTextBlock(
                 bbox=[200, 150, 100, 30],
                 text_lines=[room_name],
@@ -318,7 +319,7 @@ class TestCandidateRoomLabelIdentification:
         """Drawing annotations (NORTH, SCALE, DETAIL) should NOT be candidates."""
         from src.extraction.spatial_room_labeler import is_candidate_room_label
 
-        for annotation in ["NORTH", "SCALE", "DETAIL", "SECTION", "REV", "LEGEND"]:
+        for annotation in ["NORTH", "SCALE", "DETAIL", "SECTION", "REV", "LEGEND", "SCALE 1:100", "DETAIL A"]:
             block = SyntheticTextBlock(
                 bbox=[200, 150, 100, 30],
                 text_lines=[annotation],

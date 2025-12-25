@@ -62,6 +62,7 @@ LETTER_TOKEN_PATTERN = re.compile(r'\b([A-Za-z]+)\b')
 
 # Global annotations to exclude (NOT room names)
 # These are drawing annotations, not spaces in the building
+# This is the ONLY filter - everything else with letters is a candidate
 EXCLUDED_ANNOTATIONS = {
     # Orientation/scale
     "NORTH", "N", "SCALE", "ECHELLE", "NTS",
@@ -81,36 +82,21 @@ EXCLUDED_ANNOTATIONS = {
     "MM", "CM", "M", "FT", "IN",
 }
 
-# Room type keywords that indicate this IS a room name
-# These are functional descriptors of building spaces
-ROOM_TYPE_KEYWORDS = {
-    # French room types
-    "CLASSE", "BUREAU", "CORRIDOR", "ESCALIER", "TOILETTE", "TOILETTES",
-    "SALLE", "LOCAL", "RANGEMENT", "STOCKAGE", "ENTREE", "VESTIBULE",
-    "CUISINE", "CAFETERIA", "GYMNASE", "BIBLIOTHEQUE", "LABORATOIRE",
-    "SECRETARIAT", "DIRECTION", "RECEPTION", "ATTENTE", "REPOS",
-    "MECANIQUE", "ELECTRIQUE", "JANITOR", "CONCIERGERIE",
-    # English room types
-    "CLASSROOM", "OFFICE", "HALLWAY", "STAIRWELL", "RESTROOM", "BATHROOM",
-    "ROOM", "STORAGE", "CLOSET", "ENTRY", "LOBBY", "VESTIBULE",
-    "KITCHEN", "CAFETERIA", "GYM", "GYMNASIUM", "LIBRARY", "LAB",
-    "SECRETARY", "PRINCIPAL", "RECEPTION", "WAITING", "LOUNGE",
-    "MECHANICAL", "ELECTRICAL", "JANITOR", "CUSTODIAN",
-    # Generic
-    "WC", "HC", "ACCESSIBLE",
-}
+# Minimum length for a room name token to be considered valid
+# Filters out single-letter grid markers and abbreviations
+MIN_ROOM_NAME_LENGTH = 2
 
 
 def is_candidate_room_label(block: TextBlockLike) -> bool:
     """Determine if a text block is a candidate room label.
 
-    A block is a candidate room label if:
-    1. It contains a known room type keyword (CLASSE, BUREAU, CORRIDOR, etc.)
-       - These are accepted even without a room number
-    2. OR it contains both a letter token AND a room number pattern
-    3. AND it is NOT an excluded annotation (NORTH, SCALE, DETAIL, etc.)
+    Simple criteria:
+    1. Contains at least one letter token with length >= MIN_ROOM_NAME_LENGTH
+    2. NOT an excluded global annotation (NORTH, SCALE, DETAIL, etc.)
 
-    This uses keyword matching for room types but excludes drawing annotations.
+    Room number is OPTIONAL - extracted separately if present.
+    This accepts: CLASSE, CORRIDOR, BUREAU, SERVICE DE GARDE, etc.
+    This rejects: NORTH, SCALE 1:100, DETAIL A, REVISION, etc.
 
     Args:
         block: A text block with bbox, text_lines, and confidence
@@ -122,41 +108,38 @@ def is_candidate_room_label(block: TextBlockLike) -> bool:
     all_text = " ".join(block.text_lines).upper()
 
     # Extract all letter tokens
-    letter_tokens = LETTER_TOKEN_PATTERN.findall(all_text.upper())
+    letter_tokens = LETTER_TOKEN_PATTERN.findall(all_text)
 
-    # Check if any token is an excluded annotation
+    if not letter_tokens:
+        return False
+
+    # Check if ALL tokens are excluded annotations or too short
+    valid_tokens = []
+    excluded_tokens = []
     for token in letter_tokens:
-        if token.upper() in EXCLUDED_ANNOTATIONS:
-            # If the ONLY token is an excluded annotation, reject
-            if len(letter_tokens) == 1:
-                return False
+        token_upper = token.upper()
+        # Skip if excluded annotation
+        if token_upper in EXCLUDED_ANNOTATIONS:
+            excluded_tokens.append(token_upper)
+            continue
+        # Skip if too short (single letters are usually grid markers)
+        if len(token) < MIN_ROOM_NAME_LENGTH:
+            continue
+        valid_tokens.append(token)
 
-    # Check if any token is a known room type keyword
-    for token in letter_tokens:
-        if token.upper() in ROOM_TYPE_KEYWORDS:
-            # Room type keyword found - this is a room label (with or without number)
-            return True
+    # If no valid tokens remain, reject
+    if not valid_tokens:
+        # Log rejection reason for debugging
+        if excluded_tokens:
+            logger.debug(
+                "block_rejected_global_annotation",
+                text=" ".join(block.text_lines),
+                excluded_tokens=excluded_tokens,
+            )
+        return False
 
-    # Check for room number pattern (2-4 digits, optionally with hyphen suffix)
-    has_room_number = bool(ROOM_NUMBER_PATTERN.search(all_text))
-
-    # Check for letter tokens (at least one word with letters)
-    has_letter_token = len(letter_tokens) > 0
-
-    # Multi-line with letter on one line and number on another is also a candidate
-    if len(block.text_lines) >= 2:
-        first_line = block.text_lines[0].upper()
-        second_line = block.text_lines[1].upper() if len(block.text_lines) > 1 else ""
-
-        # Check if it's "CLASSE" + "203" style
-        first_has_letter = bool(LETTER_TOKEN_PATTERN.search(first_line))
-        second_has_number = bool(ROOM_NUMBER_PATTERN.search(second_line))
-
-        if first_has_letter and second_has_number:
-            return True
-
-    # Standard check: must have both letter and number
-    return has_letter_token and has_room_number
+    # At least one valid token - this is a candidate room label
+    return True
 
 
 def extract_room_number(block: TextBlockLike) -> Optional[str]:
@@ -296,10 +279,12 @@ class SpatialRoomLabeler:
                 )
                 continue
 
+        # Log final result with rooms_emitted for visibility
         logger.info(
             "spatial_rooms_extracted",
             page_id=str(page_id),
-            count=len(extracted_rooms),
+            blocks_processed=len(text_blocks),
+            rooms_emitted=len(extracted_rooms),
             policy=self.policy.value,
         )
 
