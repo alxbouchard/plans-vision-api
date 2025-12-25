@@ -87,6 +87,8 @@ class VisualGuideTable(Base):
     provisional: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     stable: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     confidence_report_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Phase 3.3: Store structured output with payloads for extraction
+    stable_rules_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

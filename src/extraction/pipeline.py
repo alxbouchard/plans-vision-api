@@ -6,8 +6,10 @@ from datetime import datetime
 from uuid import UUID
 from typing import Optional, Union
 
+import json
+
 from src.logging import get_logger
-from src.storage import get_db, PageRepository, FileStorage
+from src.storage import get_db, PageRepository, FileStorage, VisualGuideRepository
 from src.models.entities import (
     ExtractionStatus,
     ExtractionJob,
@@ -21,6 +23,7 @@ from src.models.entities import (
     ExtractedScheduleTable,
 )
 from src.config import Settings, get_settings
+from src.agents.schemas import RulePayload
 from .classifier import PageClassifier
 from .room_extractor import RoomExtractor
 from .door_extractor import DoorExtractor
@@ -151,6 +154,62 @@ async def _run_classify_pages(project_id: UUID, job: ExtractionJob) -> None:
     _update_step_status(job, "classify_pages", ExtractionStatus.COMPLETED)
 
 
+async def _load_guide_payloads(project_id: UUID) -> list[RulePayload]:
+    """Load RulePayloads from the stored visual guide.
+
+    Phase 3.3: The guide's stable_rules_json contains FinalRule objects with payloads.
+    We extract all payloads to pass to the SpatialRoomLabeler.
+
+    Returns:
+        List of RulePayload objects, or empty list if no payloads found.
+    """
+    try:
+        async with get_db() as db:
+            guide_repo = VisualGuideRepository(db)
+            guide = await guide_repo.get_by_project(project_id)
+
+            if not guide or not guide.stable_rules_json:
+                logger.info(
+                    "phase3_3_no_guide_payloads",
+                    project_id=str(project_id),
+                    reason="no_stable_rules_json",
+                )
+                return []
+
+            # Parse the stored GuideConsolidatorOutput JSON
+            data = json.loads(guide.stable_rules_json)
+            stable_rules = data.get("stable_rules", [])
+
+            payloads = []
+            for rule in stable_rules:
+                payload_data = rule.get("payload")
+                if payload_data:
+                    try:
+                        payload = RulePayload.model_validate(payload_data)
+                        payloads.append(payload)
+                    except Exception as e:
+                        logger.warning(
+                            "phase3_3_invalid_payload",
+                            rule_id=rule.get("id"),
+                            error=str(e),
+                        )
+
+            logger.info(
+                "phase3_3_guide_payloads_loaded",
+                project_id=str(project_id),
+                payloads_count=len(payloads),
+            )
+            return payloads
+
+    except Exception as e:
+        logger.error(
+            "phase3_3_load_payloads_failed",
+            project_id=str(project_id),
+            error=str(e),
+        )
+        return []
+
+
 async def _run_extract_objects(
     project_id: UUID,
     job: ExtractionJob,
@@ -165,10 +224,14 @@ async def _run_extract_objects(
     door_extractor = DoorExtractor(policy=policy)
     schedule_extractor = ScheduleExtractor()
 
+    # Phase 3.3: Load payloads from the stored guide
+    guide_payloads = await _load_guide_payloads(project_id)
+
     logger.info(
         "extract_objects_started",
         project_id=str(project_id),
         policy=policy.value,
+        guide_payloads_count=len(guide_payloads),
     )
 
     async with get_db() as db:
@@ -210,12 +273,14 @@ async def _run_extract_objects(
 
                     # Phase 3.3: Spatial room labeling (if enabled)
                     # Runs after doors so we can use door context for disambiguation
+                    # Uses payloads loaded from the stored guide
                     spatial_rooms = await _run_phase3_3_spatial_labeling(
                         page_id=page.id,
                         image_bytes=image_bytes,
                         doors=doors,
                         settings=settings,
                         policy=policy,
+                        payloads=guide_payloads,
                     )
                     if spatial_rooms:
                         objects.extend(spatial_rooms)

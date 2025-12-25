@@ -234,10 +234,16 @@ class PipelineOrchestrator:
 
             # Determine final status and result
             if consolidator_result.stable_guide:
+                # Phase 3.3: Persist structured output with payloads
+                stable_rules_json = None
+                if consolidator_result.structured_output:
+                    stable_rules_json = consolidator_result.structured_output.model_dump_json()
+
                 await self.guides.update_stable(
                     project_id,
                     consolidator_result.stable_guide,
                     confidence_report,
+                    stable_rules_json=stable_rules_json,
                 )
                 await self.projects.update_status(project_id, ProjectStatus.VALIDATED)
 

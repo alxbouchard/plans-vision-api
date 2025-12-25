@@ -94,6 +94,11 @@ class VisualGuide(BaseModel):
         description="Final consolidated stable guide"
     )
     confidence_report: Optional[ConfidenceReport] = None
+    # Phase 3.3: Structured output with payloads for extraction
+    stable_rules_json: Optional[str] = Field(
+        default=None,
+        description="JSON of GuideConsolidatorOutput with stable_rules containing payloads"
+    )
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 

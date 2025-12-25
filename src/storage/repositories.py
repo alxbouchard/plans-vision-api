@@ -304,6 +304,7 @@ class VisualGuideRepository:
                 provisional=None,
                 stable=None,
                 confidence_report_json=None,
+                stable_rules_json=None,
                 created_at=guide.created_at,
                 updated_at=guide.updated_at,
             )
@@ -323,6 +324,7 @@ class VisualGuideRepository:
             provisional=db_guide.provisional,
             stable=db_guide.stable,
             confidence_report=confidence_report,
+            stable_rules_json=db_guide.stable_rules_json,
             created_at=db_guide.created_at,
             updated_at=db_guide.updated_at,
         )
@@ -350,6 +352,7 @@ class VisualGuideRepository:
             provisional=db_guide.provisional,
             stable=db_guide.stable,
             confidence_report=confidence_report,
+            stable_rules_json=db_guide.stable_rules_json,
             created_at=db_guide.created_at,
             updated_at=db_guide.updated_at,
         )
@@ -374,8 +377,16 @@ class VisualGuideRepository:
         project_id: UUID,
         stable: Optional[str],
         confidence_report: ConfidenceReport,
+        stable_rules_json: Optional[str] = None,
     ) -> bool:
-        """Update the stable guide and confidence report."""
+        """Update the stable guide and confidence report.
+
+        Args:
+            project_id: Project ID
+            stable: Formatted stable guide text
+            confidence_report: Confidence report
+            stable_rules_json: JSON of GuideConsolidatorOutput with payloads (Phase 3.3)
+        """
         result = await self.session.execute(
             select(VisualGuideTable).where(
                 VisualGuideTable.project_id == str(project_id)
@@ -391,6 +402,8 @@ class VisualGuideRepository:
 
         db_guide.stable = stable
         db_guide.confidence_report_json = confidence_report.model_dump_json()
+        if stable_rules_json is not None:
+            db_guide.stable_rules_json = stable_rules_json
         await self.session.commit()
         return True
 

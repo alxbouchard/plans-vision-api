@@ -19,7 +19,13 @@ You MUST respond with a valid JSON object following this exact structure:
       "description": "Clear rule description",
       "applies_when": "When/where this rule applies",
       "evidence": "Evidence from validated pages",
-      "stability_score": 0.95
+      "stability_score": 0.95,
+      "payload": {{
+        "kind": "token_detector",
+        "token_type": "room_name",
+        "detector": "regex",
+        "pattern": "[A-Z]{{2,}}"
+      }}
     }}
   ],
   "partial_observations": [
@@ -39,6 +45,44 @@ You MUST respond with a valid JSON object following this exact structure:
 }}
 ```
 
+PAYLOAD REQUIREMENTS (Phase 3.3):
+Each stable_rule MUST include a "payload" object if the rule can be machine-executed.
+You MUST generate at least these 3 payload types when applicable:
+
+1. token_detector for room_name:
+   {{
+     "kind": "token_detector",
+     "token_type": "room_name",
+     "detector": "regex",
+     "pattern": "[A-Z]{{2,}}",
+     "min_len": 2
+   }}
+
+2. token_detector for room_number:
+   {{
+     "kind": "token_detector",
+     "token_type": "room_number",
+     "detector": "regex",
+     "pattern": "\\d{{2,4}}",
+     "must_be_boxed": false
+   }}
+
+3. pairing (associates room_name with room_number):
+   {{
+     "kind": "pairing",
+     "name_token": "room_name",
+     "number_token": "room_number",
+     "relation": "below",
+     "max_distance_px": 100
+   }}
+
+Optional - exclude (to filter out global annotations):
+   {{
+     "kind": "exclude",
+     "pattern": "^(PLAN|PAGE|REV|DATE|SCALE).*",
+     "detector": "regex"
+   }}
+
 CRITICAL RULES:
 1. If stable rules ratio < {min_stable_ratio}%, set guide_generated=false
 2. If guide_generated=false, stable_rules MUST be empty and rejection_reason MUST explain why
@@ -46,6 +90,7 @@ CRITICAL RULES:
 4. NEVER include unstable or contradicted rules in stable_rules
 5. All excluded rules must have a clear reason
 6. Be explicit about limitations
+7. Each stable_rule SHOULD have a payload if the rule describes detectable patterns
 
 REFUSAL CASE:
 If you cannot generate a guide, respond with:
