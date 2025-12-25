@@ -275,8 +275,13 @@ async def get_page_overlay(
             except ValueError:
                 obj_type = ObjectType.UNKNOWN
 
-        # Build geometry
-        geometry = Geometry(type="bbox", bbox=obj.bbox)
+        # Build geometry - handle both direct bbox and geometry.bbox
+        if hasattr(obj, 'geometry') and obj.geometry:
+            geometry = Geometry(type=obj.geometry.type, bbox=obj.geometry.bbox)
+        elif hasattr(obj, 'bbox'):
+            geometry = Geometry(type="bbox", bbox=obj.bbox)
+        else:
+            geometry = Geometry(type="bbox", bbox=[0, 0, 0, 0])
 
         # Get confidence level
         conf_level = obj.confidence_level if hasattr(obj, 'confidence_level') else ConfLevelEnum.LOW

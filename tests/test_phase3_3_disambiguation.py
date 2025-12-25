@@ -695,3 +695,156 @@ class TestTextBlockDetectorVision:
         assert result[0].text_lines == ["CLASSE", "203"]
         assert result[1].text == "203"
         assert result[2].text == "203-1"
+
+
+# =============================================================================
+# Ticket 11: Overlay surfaces extracted objects
+# =============================================================================
+
+class TestOverlaySurfacesObjects:
+    """Test that overlay endpoint returns Phase 3.3 extracted rooms."""
+
+    def test_extracted_room_has_geometry(self):
+        """ExtractedRoom has geometry that overlay can use."""
+        from src.models.entities import ExtractedRoom, Geometry, ConfidenceLevel
+
+        room = ExtractedRoom(
+            id="room_203",
+            page_id=uuid4(),
+            geometry=Geometry(type="bbox", bbox=[100, 200, 150, 60]),
+            confidence=0.92,
+            confidence_level=ConfidenceLevel.HIGH,
+            room_number="203",
+            room_name="CLASSE",
+            label="CLASSE 203",
+            label_bbox=[100, 200, 150, 60],
+        )
+
+        assert room.geometry.bbox == [100, 200, 150, 60]
+        assert room.room_number == "203"
+        assert room.room_name == "CLASSE"
+
+
+# =============================================================================
+# Ticket 12: E2E flow test with mocked vision
+# =============================================================================
+
+class TestE2EFlow:
+    """End-to-end flow test for Phase 3.3 spatial room labeling."""
+
+    @pytest.mark.asyncio
+    async def test_full_flow_with_mocked_vision(self, monkeypatch):
+        """Full flow: detector -> labeler -> rooms extracted."""
+        from src.extraction.pipeline import _run_phase3_3_spatial_labeling
+        from src.extraction.text_block_detector import TextBlockDetector
+        from src.config import Settings
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        # Enable feature flag
+        monkeypatch.setenv("ENABLE_PHASE3_3_SPATIAL_LABELING", "true")
+
+        # Mock the vision client to return our fixture text blocks
+        mock_response = '''[
+            {"bbox": [200, 150, 100, 60], "text": "CLASSE\\n203", "confidence": 0.92}
+        ]'''
+
+        with patch('src.extraction.text_block_detector.VisionClient') as MockClient:
+            mock_client = MagicMock()
+            mock_client.analyze_image = AsyncMock(return_value=mock_response)
+            MockClient.return_value = mock_client
+
+            page_id = uuid4()
+            settings = Settings()
+
+            rooms = await _run_phase3_3_spatial_labeling(
+                page_id=page_id,
+                image_bytes=b"fake_image",
+                doors=[],
+                settings=settings,
+            )
+
+            # Should extract one room from "CLASSE 203"
+            assert len(rooms) == 1
+            assert rooms[0].room_number == "203"
+            assert rooms[0].room_name == "CLASSE"
+            assert rooms[0].label == "CLASSE 203"
+            assert rooms[0].geometry.bbox == [200, 150, 100, 60]
+
+    @pytest.mark.asyncio
+    async def test_door_disambiguation_filters_door_numbers(self, monkeypatch):
+        """Door numbers near doors should NOT become rooms."""
+        from src.extraction.pipeline import _run_phase3_3_spatial_labeling
+        from src.models.entities import ExtractedDoor, Geometry, ConfidenceLevel
+        from src.config import Settings
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        monkeypatch.setenv("ENABLE_PHASE3_3_SPATIAL_LABELING", "true")
+
+        # Text blocks: one room label, two door numbers
+        mock_response = '''[
+            {"bbox": [200, 150, 100, 60], "text": "CLASSE\\n203", "confidence": 0.92},
+            {"bbox": [50, 320, 30, 18], "text": "203", "confidence": 0.88},
+            {"bbox": [150, 320, 40, 18], "text": "203-1", "confidence": 0.85}
+        ]'''
+
+        # Create door symbols near the door numbers
+        doors = [
+            ExtractedDoor(
+                id="door_1",
+                page_id=uuid4(),
+                geometry=Geometry(type="bbox", bbox=[45, 280, 40, 40]),
+                confidence=0.9,
+                confidence_level=ConfidenceLevel.HIGH,
+                door_type="single",
+            ),
+            ExtractedDoor(
+                id="door_2",
+                page_id=uuid4(),
+                geometry=Geometry(type="bbox", bbox=[145, 280, 40, 40]),
+                confidence=0.9,
+                confidence_level=ConfidenceLevel.HIGH,
+                door_type="single",
+            ),
+        ]
+
+        with patch('src.extraction.text_block_detector.VisionClient') as MockClient:
+            mock_client = MagicMock()
+            mock_client.analyze_image = AsyncMock(return_value=mock_response)
+            MockClient.return_value = mock_client
+
+            page_id = uuid4()
+            settings = Settings()
+
+            rooms = await _run_phase3_3_spatial_labeling(
+                page_id=page_id,
+                image_bytes=b"fake_image",
+                doors=doors,
+                settings=settings,
+            )
+
+            # Should only extract CLASSE 203, not the door numbers
+            assert len(rooms) == 1
+            assert rooms[0].room_number == "203"
+            assert rooms[0].room_name == "CLASSE"
+
+    @pytest.mark.asyncio
+    async def test_no_rooms_when_flag_off(self, monkeypatch):
+        """With flag off, no rooms extracted, no vision calls."""
+        from src.extraction.pipeline import _run_phase3_3_spatial_labeling
+        from src.config import Settings
+
+        # Flag off
+        monkeypatch.setenv("ENABLE_PHASE3_3_SPATIAL_LABELING", "false")
+
+        page_id = uuid4()
+        settings = Settings()
+
+        rooms = await _run_phase3_3_spatial_labeling(
+            page_id=page_id,
+            image_bytes=b"fake_image",
+            doors=[],
+            settings=settings,
+        )
+
+        # Should return empty, no vision calls made
+        assert rooms == []

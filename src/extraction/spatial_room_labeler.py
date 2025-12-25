@@ -130,16 +130,25 @@ def extract_room_name(block: TextBlockLike) -> Optional[str]:
 # Geometric Disambiguation
 # =============================================================================
 
+def _get_door_bbox(door) -> Optional[list[int]]:
+    """Get bbox from a door object (handles both direct bbox and geometry.bbox)."""
+    if hasattr(door, 'bbox') and door.bbox:
+        return door.bbox
+    if hasattr(door, 'geometry') and door.geometry and hasattr(door.geometry, 'bbox'):
+        return door.geometry.bbox
+    return None
+
+
 def is_near_door_symbol(
     block_bbox: list[int],
-    door_symbols: list[DoorSymbolLike],
+    door_symbols: list,
     threshold: float = 100.0,
 ) -> bool:
     """Check if a text block is near any door symbol.
 
     Args:
         block_bbox: The text block bounding box [x, y, w, h]
-        door_symbols: List of door symbols with bbox
+        door_symbols: List of door symbols (with bbox or geometry.bbox)
         threshold: Maximum distance in pixels to be considered "near"
 
     Returns:
@@ -153,7 +162,11 @@ def is_near_door_symbol(
     block_cy = by + bh / 2
 
     for door in door_symbols:
-        dx, dy, dw, dh = door.bbox
+        door_bbox = _get_door_bbox(door)
+        if not door_bbox:
+            continue
+
+        dx, dy, dw, dh = door_bbox
         door_cx = dx + dw / 2
         door_cy = dy + dh / 2
 
