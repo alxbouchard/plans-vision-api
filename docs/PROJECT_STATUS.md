@@ -184,3 +184,17 @@ Before any work:
 4. Read relevant TEST_GATES docs
 
 **Any Phase 4 work requires explicit user approval and a new feature document.**
+## Phase 4 — Render & Viewer
+
+Status: NOT STARTED
+
+Constraints:
+- Must remain 100% guide-driven
+- No visual heuristics in code
+- No semantic assumptions outside the guide
+- New test gates required before implementation
+
+No Phase 4 work may begin without:
+- Explicit approval
+- A validated WORK_QUEUE_PHASE3_RENDER.md
+- Defined render test gates
