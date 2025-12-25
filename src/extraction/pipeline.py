@@ -356,6 +356,7 @@ async def _run_phase3_3_spatial_labeling(
     doors: list[ExtractedDoor],
     settings: Settings,
     policy: ExtractionPolicy = ExtractionPolicy.CONSERVATIVE,
+    payloads: Optional[list] = None,
 ) -> list[ExtractedRoom]:
     """Phase 3.3 hook: Run spatial room labeling if feature flag is enabled.
 
@@ -369,6 +370,7 @@ async def _run_phase3_3_spatial_labeling(
         doors: Extracted doors for disambiguation (Ticket 9)
         settings: Settings instance (to check feature flag)
         policy: Extraction policy
+        payloads: Machine-executable rule payloads from guide (Phase 3.3)
 
     Returns:
         List of ExtractedRoom objects from spatial labeling
@@ -410,7 +412,7 @@ async def _run_phase3_3_spatial_labeling(
                 door_symbols.append(door)
 
         # Step 3: Run spatial room labeler (Ticket 7)
-        labeler = SpatialRoomLabeler(policy=policy)
+        labeler = SpatialRoomLabeler(policy=policy, payloads=payloads or [])
         rooms = labeler.extract_rooms(
             page_id=page_id,
             text_blocks=text_blocks,

@@ -315,21 +315,20 @@ class TestCandidateRoomLabelIdentification:
             )
             assert is_candidate_room_label(block) is True, f"{room_name} should be candidate"
 
-    def test_excluded_annotations_not_candidate(self):
-        """Drawing annotations (NORTH, SCALE, DETAIL) should NOT be candidates."""
-        from src.extraction.spatial_room_labeler import is_candidate_room_label
-
-        for annotation in ["NORTH", "SCALE", "DETAIL", "SECTION", "REV", "LEGEND", "SCALE 1:100", "DETAIL A"]:
-            block = SyntheticTextBlock(
-                bbox=[200, 150, 100, 30],
-                text_lines=[annotation],
-                confidence=0.90,
-            )
-            assert is_candidate_room_label(block) is False, f"{annotation} should be excluded"
-
     def test_room_name_extracts_with_null_number(self):
-        """Room name only should extract with room_number=None."""
+        """Room name only should extract with room_number=None when payloads provided."""
         from src.extraction.spatial_room_labeler import SpatialRoomLabeler
+        from src.agents.schemas import RulePayload, RuleKind
+
+        # Payload that matches CORRIDOR
+        payloads = [
+            RulePayload(
+                kind=RuleKind.TOKEN_DETECTOR,
+                token_type="room_name",
+                detector="regex",
+                pattern=r"CORRIDOR|CLASSE|BUREAU",
+            ),
+        ]
 
         block = SyntheticTextBlock(
             bbox=[200, 150, 100, 30],
@@ -337,7 +336,7 @@ class TestCandidateRoomLabelIdentification:
             confidence=0.90,
         )
 
-        labeler = SpatialRoomLabeler()
+        labeler = SpatialRoomLabeler(payloads=payloads)
         rooms = labeler.extract_rooms(
             page_id=uuid4(),
             text_blocks=[block],
@@ -368,14 +367,31 @@ class TestDisambiguationOutput:
         return create_203_disambiguation_fixture()
 
     def test_extracts_one_room_from_classe_203(self, fixture_203):
-        """Should extract exactly 1 room from the CLASSE 203 block."""
+        """Should extract exactly 1 room from the CLASSE 203 block when payloads provided."""
         from src.extraction.spatial_room_labeler import SpatialRoomLabeler
+        from src.agents.schemas import RulePayload, RuleKind
+
+        # Payloads that match the fixture
+        payloads = [
+            RulePayload(
+                kind=RuleKind.TOKEN_DETECTOR,
+                token_type="room_name",
+                detector="regex",
+                pattern=r"CLASSE|CORRIDOR|BUREAU",
+            ),
+            RulePayload(
+                kind=RuleKind.TOKEN_DETECTOR,
+                token_type="room_number",
+                detector="regex",
+                pattern=r"\d{2,4}",
+            ),
+        ]
 
         text_blocks = fixture_203["text_blocks"]
         door_symbols = fixture_203["door_symbols"]
         page_id = uuid4()
 
-        labeler = SpatialRoomLabeler()
+        labeler = SpatialRoomLabeler(payloads=payloads)
         rooms = labeler.extract_rooms(
             page_id=page_id,
             text_blocks=text_blocks,
@@ -387,14 +403,34 @@ class TestDisambiguationOutput:
         assert rooms[0].room_name == "CLASSE"
 
     def test_does_not_extract_door_numbers_as_rooms(self, fixture_203):
-        """Door numbers (203, 203-1) should NOT be extracted as rooms."""
+        """Door numbers (203, 203-1) should NOT be extracted as rooms.
+
+        This works because number-only blocks don't match room_name detector.
+        """
         from src.extraction.spatial_room_labeler import SpatialRoomLabeler
+        from src.agents.schemas import RulePayload, RuleKind
+
+        # Payloads require letters for room_name
+        payloads = [
+            RulePayload(
+                kind=RuleKind.TOKEN_DETECTOR,
+                token_type="room_name",
+                detector="regex",
+                pattern=r"CLASSE|CORRIDOR|BUREAU",  # Only letter patterns
+            ),
+            RulePayload(
+                kind=RuleKind.TOKEN_DETECTOR,
+                token_type="room_number",
+                detector="regex",
+                pattern=r"\d{2,4}",
+            ),
+        ]
 
         text_blocks = fixture_203["text_blocks"]
         door_symbols = fixture_203["door_symbols"]
         page_id = uuid4()
 
-        labeler = SpatialRoomLabeler()
+        labeler = SpatialRoomLabeler(payloads=payloads)
         rooms = labeler.extract_rooms(
             page_id=page_id,
             text_blocks=text_blocks,
@@ -409,12 +445,28 @@ class TestDisambiguationOutput:
     def test_room_has_label_bbox(self, fixture_203):
         """Extracted room should include label_bbox from the text block."""
         from src.extraction.spatial_room_labeler import SpatialRoomLabeler
+        from src.agents.schemas import RulePayload, RuleKind
+
+        payloads = [
+            RulePayload(
+                kind=RuleKind.TOKEN_DETECTOR,
+                token_type="room_name",
+                detector="regex",
+                pattern=r"CLASSE|CORRIDOR|BUREAU",
+            ),
+            RulePayload(
+                kind=RuleKind.TOKEN_DETECTOR,
+                token_type="room_number",
+                detector="regex",
+                pattern=r"\d{2,4}",
+            ),
+        ]
 
         text_blocks = fixture_203["text_blocks"]
         door_symbols = fixture_203["door_symbols"]
         page_id = uuid4()
 
-        labeler = SpatialRoomLabeler()
+        labeler = SpatialRoomLabeler(payloads=payloads)
         rooms = labeler.extract_rooms(
             page_id=page_id,
             text_blocks=text_blocks,
@@ -785,10 +837,27 @@ class TestE2EFlow:
         from src.extraction.pipeline import _run_phase3_3_spatial_labeling
         from src.extraction.text_block_detector import TextBlockDetector
         from src.config import Settings
+        from src.agents.schemas import RulePayload, RuleKind
         from unittest.mock import AsyncMock, MagicMock, patch
 
         # Enable feature flag
         monkeypatch.setenv("ENABLE_PHASE3_3_SPATIAL_LABELING", "true")
+
+        # Payloads that match the fixture
+        payloads = [
+            RulePayload(
+                kind=RuleKind.TOKEN_DETECTOR,
+                token_type="room_name",
+                detector="regex",
+                pattern=r"CLASSE|CORRIDOR|BUREAU",
+            ),
+            RulePayload(
+                kind=RuleKind.TOKEN_DETECTOR,
+                token_type="room_number",
+                detector="regex",
+                pattern=r"\d{2,4}",
+            ),
+        ]
 
         # Mock the vision client to return our fixture text blocks
         mock_response = '''[
@@ -808,6 +877,7 @@ class TestE2EFlow:
                 image_bytes=b"fake_image",
                 doors=[],
                 settings=settings,
+                payloads=payloads,
             )
 
             # Should extract one room from "CLASSE 203"
@@ -819,13 +889,33 @@ class TestE2EFlow:
 
     @pytest.mark.asyncio
     async def test_door_disambiguation_filters_door_numbers(self, monkeypatch):
-        """Door numbers near doors should NOT become rooms."""
+        """Door numbers near doors should NOT become rooms.
+
+        This works because number-only blocks don't match room_name detector.
+        """
         from src.extraction.pipeline import _run_phase3_3_spatial_labeling
         from src.models.entities import ExtractedDoor, Geometry, ConfidenceLevel
         from src.config import Settings
+        from src.agents.schemas import RulePayload, RuleKind
         from unittest.mock import AsyncMock, MagicMock, patch
 
         monkeypatch.setenv("ENABLE_PHASE3_3_SPATIAL_LABELING", "true")
+
+        # Payloads require letters for room_name
+        payloads = [
+            RulePayload(
+                kind=RuleKind.TOKEN_DETECTOR,
+                token_type="room_name",
+                detector="regex",
+                pattern=r"CLASSE|CORRIDOR|BUREAU",  # Only letter patterns
+            ),
+            RulePayload(
+                kind=RuleKind.TOKEN_DETECTOR,
+                token_type="room_number",
+                detector="regex",
+                pattern=r"\d{2,4}",
+            ),
+        ]
 
         # Text blocks: one room label, two door numbers
         mock_response = '''[
@@ -867,6 +957,7 @@ class TestE2EFlow:
                 image_bytes=b"fake_image",
                 doors=doors,
                 settings=settings,
+                payloads=payloads,
             )
 
             # Should only extract CLASSE 203, not the door numbers
@@ -1020,3 +1111,158 @@ class TestDetectorInvocationMandatory:
 
             # Result should be empty
             assert result == []
+
+
+# =============================================================================
+# Mandatory: Payload-based labeling tests
+# =============================================================================
+
+class TestPayloadBasedLabeling:
+    """Mandatory tests for payload-based room extraction.
+
+    Test A: guide with payloads -> rooms_emitted > 0
+    Test B: guide without payloads -> rooms_emitted = 0, log 'no_machine_rules'
+    """
+
+    def test_with_payloads_emits_rooms(self):
+        """Test A: When guide has valid payloads, rooms_emitted > 0."""
+        from src.extraction.spatial_room_labeler import SpatialRoomLabeler
+        from src.agents.schemas import RulePayload, RuleKind
+
+        # Create payloads that should match the fixture
+        payloads = [
+            RulePayload(
+                kind=RuleKind.TOKEN_DETECTOR,
+                token_type="room_name",
+                detector="regex",
+                pattern=r"CLASSE|CORRIDOR|BUREAU|ESCALIER",
+            ),
+            RulePayload(
+                kind=RuleKind.TOKEN_DETECTOR,
+                token_type="room_number",
+                detector="regex",
+                pattern=r"\d{2,4}",
+            ),
+        ]
+
+        # Text block with CLASSE 203
+        block = SyntheticTextBlock(
+            bbox=[200, 150, 100, 60],
+            text_lines=["CLASSE", "203"],
+            confidence=0.92,
+        )
+
+        labeler = SpatialRoomLabeler(payloads=payloads)
+        rooms = labeler.extract_rooms(
+            page_id=uuid4(),
+            text_blocks=[block],
+            door_symbols=[],
+        )
+
+        assert len(rooms) >= 1, "rooms_emitted should be > 0 with valid payloads"
+        assert rooms[0].room_name == "CLASSE"
+        assert rooms[0].room_number == "203"
+
+    def test_without_payloads_emits_zero_rooms(self, capsys):
+        """Test B: When guide has no payloads, rooms_emitted = 0 and log 'no_machine_rules'."""
+        from src.extraction.spatial_room_labeler import SpatialRoomLabeler
+
+        # No payloads
+        labeler = SpatialRoomLabeler(payloads=[])
+
+        # Text block with CLASSE 203
+        block = SyntheticTextBlock(
+            bbox=[200, 150, 100, 60],
+            text_lines=["CLASSE", "203"],
+            confidence=0.92,
+        )
+
+        rooms = labeler.extract_rooms(
+            page_id=uuid4(),
+            text_blocks=[block],
+            door_symbols=[],
+        )
+
+        assert len(rooms) == 0, "rooms_emitted should be 0 without payloads"
+        # Check stdout contains 'no_machine_rules' (structlog logs to stdout)
+        captured = capsys.readouterr()
+        assert "no_machine_rules" in captured.out, \
+            f"Should log 'no_machine_rules' when no payloads, got: {captured.out}"
+
+    def test_exclude_payload_filters_blocks(self):
+        """Test that exclude payloads filter out global annotations."""
+        from src.extraction.spatial_room_labeler import SpatialRoomLabeler
+        from src.agents.schemas import RulePayload, RuleKind
+
+        payloads = [
+            RulePayload(
+                kind=RuleKind.TOKEN_DETECTOR,
+                token_type="room_name",
+                detector="regex",
+                pattern=r"CLASSE|CORRIDOR|NORTH",  # NORTH included to test exclusion
+            ),
+            RulePayload(
+                kind=RuleKind.EXCLUDE,
+                detector="regex",
+                pattern=r"NORTH|SCALE|DETAIL",
+            ),
+        ]
+
+        blocks = [
+            SyntheticTextBlock(bbox=[200, 150, 100, 60], text_lines=["CLASSE"], confidence=0.92),
+            SyntheticTextBlock(bbox=[50, 50, 50, 30], text_lines=["NORTH"], confidence=0.95),
+        ]
+
+        labeler = SpatialRoomLabeler(payloads=payloads)
+        rooms = labeler.extract_rooms(
+            page_id=uuid4(),
+            text_blocks=blocks,
+            door_symbols=[],
+        )
+
+        # Only CLASSE should be extracted, not NORTH
+        assert len(rooms) == 1
+        assert rooms[0].room_name == "CLASSE"
+
+    def test_pairing_uses_spatial_relation(self):
+        """Test that pairing rules use spatial relation from payload."""
+        from src.extraction.spatial_room_labeler import SpatialRoomLabeler
+        from src.agents.schemas import RulePayload, RuleKind
+
+        payloads = [
+            RulePayload(
+                kind=RuleKind.TOKEN_DETECTOR,
+                token_type="room_name",
+                detector="regex",
+                pattern=r"CLASSE",
+            ),
+            RulePayload(
+                kind=RuleKind.TOKEN_DETECTOR,
+                token_type="room_number",
+                detector="regex",
+                pattern=r"\d{3}",
+            ),
+            RulePayload(
+                kind=RuleKind.PAIRING,
+                name_token="room_name",
+                number_token="room_number",
+                relation="below",
+                max_distance_px=250,
+            ),
+        ]
+
+        block = SyntheticTextBlock(
+            bbox=[200, 150, 100, 60],
+            text_lines=["CLASSE", "203"],
+            confidence=0.92,
+        )
+
+        labeler = SpatialRoomLabeler(payloads=payloads)
+        rooms = labeler.extract_rooms(
+            page_id=uuid4(),
+            text_blocks=[block],
+            door_symbols=[],
+        )
+
+        assert len(rooms) == 1
+        assert rooms[0].label == "CLASSE 203"

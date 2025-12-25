@@ -131,6 +131,64 @@ class SelfValidatorOutput(BaseModel):
 # Guide Consolidator Output Schema
 # =============================================================================
 
+class RuleKind(str, Enum):
+    """Kind of machine-executable rule payload."""
+    TOKEN_DETECTOR = "token_detector"  # Detect tokens (room_name, room_number, etc.)
+    PAIRING = "pairing"                # Pair name and number tokens
+    EXCLUDE = "exclude"                # Exclude global annotations
+
+
+class RulePayload(BaseModel):
+    """Machine-executable payload for a rule.
+
+    This allows rules to be executed by code without interpreting text.
+    The labeler reads these payloads and applies them directly.
+    """
+    kind: RuleKind = Field(description="Type of rule: token_detector, pairing, exclude")
+    token_type: Optional[str] = Field(
+        default=None,
+        description="For token_detector: room_name, room_number, door_number"
+    )
+    detector: Optional[str] = Field(
+        default=None,
+        description="Detection method: regex, boxed_number, ocr_keyword"
+    )
+    pattern: Optional[str] = Field(
+        default=None,
+        description="Regex pattern for detection"
+    )
+    min_len: Optional[int] = Field(
+        default=None,
+        description="Minimum token length"
+    )
+    must_be_boxed: Optional[bool] = Field(
+        default=None,
+        description="For room_number: must be inside a box/frame"
+    )
+    # Pairing fields
+    name_token: Optional[str] = Field(
+        default=None,
+        description="For pairing: which token type is the name"
+    )
+    number_token: Optional[str] = Field(
+        default=None,
+        description="For pairing: which token type is the number"
+    )
+    relation: Optional[str] = Field(
+        default=None,
+        description="Spatial relation: below, above, nearest"
+    )
+    max_distance_px: Optional[int] = Field(
+        default=None,
+        description="Maximum distance in pixels for pairing"
+    )
+    # Examples (for observability, not execution)
+    examples: Optional[list[dict]] = Field(
+        default=None,
+        description="Example bboxes where this rule was observed"
+    )
+
+
 class FinalRule(BaseModel):
     """A rule in the final stable guide."""
     id: str = Field(description="Rule ID")
@@ -138,6 +196,11 @@ class FinalRule(BaseModel):
     applies_when: str = Field(description="When/where this rule applies")
     evidence: str = Field(description="Evidence from validated pages")
     stability_score: float = Field(ge=0.0, le=1.0, description="Stability score")
+    # Phase 3.3: Optional machine-executable payload
+    payload: Optional[RulePayload] = Field(
+        default=None,
+        description="Machine-executable payload for spatial labeling"
+    )
 
 
 class ExcludedRule(BaseModel):

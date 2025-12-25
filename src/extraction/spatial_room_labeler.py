@@ -1,13 +1,14 @@
 """Spatial room labeling for Phase 3.3.
 
 Per FEATURE_Phase3_3_SpatialRoomLabeling.md:
-- Identify candidate room label blocks based on text content
+- Identify candidate room label blocks based on guide payloads
 - Use geometric evidence to distinguish rooms from doors
 - Preserve ambiguity explicitly when evidence is insufficient
 
 Constraints (non-negotiable):
 - Zero hardcode of positions, styles, or PDF-specific rules
-- All must be deduced from visual guide or measurable geometric evidence
+- All rules come from the guide payloads
+- If no payloads, return 0 rooms and log 'no_machine_rules'
 - If ambiguous, return ambiguity=true with reason
 - Never choose arbitrarily
 """
@@ -27,6 +28,7 @@ from src.models.entities import (
     ExtractedRoom,
     Geometry,
 )
+from src.agents.schemas import RulePayload, RuleKind
 from .id_generator import generate_room_id
 
 logger = get_logger(__name__)
@@ -48,122 +50,6 @@ class TextBlockLike(Protocol):
 class DoorSymbolLike(Protocol):
     """Protocol for door symbol objects."""
     bbox: list[int]
-
-
-# =============================================================================
-# Candidate Identification Logic
-# =============================================================================
-
-# Pattern for room numbers: 2-4 digits, or digit-hyphen pattern like 203-1
-ROOM_NUMBER_PATTERN = re.compile(r'\b(\d{2,4}(-\d+)?)\b')
-
-# Pattern for letter tokens (words with letters)
-LETTER_TOKEN_PATTERN = re.compile(r'\b([A-Za-z]+)\b')
-
-# Global annotations to exclude (NOT room names)
-# These are drawing annotations, not spaces in the building
-# This is the ONLY filter - everything else with letters is a candidate
-EXCLUDED_ANNOTATIONS = {
-    # Orientation/scale
-    "NORTH", "N", "SCALE", "ECHELLE", "NTS",
-    # Detail/section markers
-    "DETAIL", "SECTION", "COUPE", "ELEVATION", "ELEV",
-    # Revision markers
-    "REV", "REVISION", "DATE", "ISSUE",
-    # Drawing info
-    "DRAWING", "SHEET", "PAGE", "PLAN", "PLANS",
-    "PROJECT", "PROJET", "CLIENT", "ARCHITECT",
-    # Grid markers (single letters A-Z used for grids)
-    "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M",
-    # Common non-room annotations
-    "NOTE", "NOTES", "LEGEND", "LEGENDE", "KEY", "SEE", "VOIR",
-    "TYPICAL", "TYP", "SIM", "SIMILAR", "EQ", "EQUAL",
-    # Dimensions
-    "MM", "CM", "M", "FT", "IN",
-}
-
-# Minimum length for a room name token to be considered valid
-# Filters out single-letter grid markers and abbreviations
-MIN_ROOM_NAME_LENGTH = 2
-
-
-def is_candidate_room_label(block: TextBlockLike) -> bool:
-    """Determine if a text block is a candidate room label.
-
-    Simple criteria:
-    1. Contains at least one letter token with length >= MIN_ROOM_NAME_LENGTH
-    2. NOT an excluded global annotation (NORTH, SCALE, DETAIL, etc.)
-
-    Room number is OPTIONAL - extracted separately if present.
-    This accepts: CLASSE, CORRIDOR, BUREAU, SERVICE DE GARDE, etc.
-    This rejects: NORTH, SCALE 1:100, DETAIL A, REVISION, etc.
-
-    Args:
-        block: A text block with bbox, text_lines, and confidence
-
-    Returns:
-        True if the block is a candidate room label
-    """
-    # Join all text lines for analysis
-    all_text = " ".join(block.text_lines).upper()
-
-    # Extract all letter tokens
-    letter_tokens = LETTER_TOKEN_PATTERN.findall(all_text)
-
-    if not letter_tokens:
-        return False
-
-    # Check if ALL tokens are excluded annotations or too short
-    valid_tokens = []
-    excluded_tokens = []
-    for token in letter_tokens:
-        token_upper = token.upper()
-        # Skip if excluded annotation
-        if token_upper in EXCLUDED_ANNOTATIONS:
-            excluded_tokens.append(token_upper)
-            continue
-        # Skip if too short (single letters are usually grid markers)
-        if len(token) < MIN_ROOM_NAME_LENGTH:
-            continue
-        valid_tokens.append(token)
-
-    # If no valid tokens remain, reject
-    if not valid_tokens:
-        # Log rejection reason for debugging
-        if excluded_tokens:
-            logger.debug(
-                "block_rejected_global_annotation",
-                text=" ".join(block.text_lines),
-                excluded_tokens=excluded_tokens,
-            )
-        return False
-
-    # At least one valid token - this is a candidate room label
-    return True
-
-
-def extract_room_number(block: TextBlockLike) -> Optional[str]:
-    """Extract the room number from a candidate room label block.
-
-    Returns the first room number pattern found (2-4 digits, optionally with hyphen).
-    """
-    all_text = " ".join(block.text_lines)
-    match = ROOM_NUMBER_PATTERN.search(all_text)
-    if match:
-        return match.group(1)
-    return None
-
-
-def extract_room_name(block: TextBlockLike) -> Optional[str]:
-    """Extract the room name from a candidate room label block.
-
-    Returns the first letter token found (e.g., CLASSE, BUREAU).
-    """
-    all_text = " ".join(block.text_lines)
-    match = LETTER_TOKEN_PATTERN.search(all_text)
-    if match:
-        return match.group(1)
-    return None
 
 
 # =============================================================================
@@ -229,23 +115,155 @@ def _confidence_to_level(confidence: float) -> ConfidenceLevel:
 
 
 # =============================================================================
+# Payload-based Token Detection
+# =============================================================================
+
+class TokenMatch(BaseModel):
+    """A matched token from a text block."""
+    token_type: str  # room_name, room_number, etc.
+    value: str
+    bbox: list[int]
+    confidence: float
+
+
+def apply_token_detector(
+    block: TextBlockLike,
+    payload: RulePayload,
+) -> Optional[TokenMatch]:
+    """Apply a token_detector payload to a text block.
+
+    Returns a TokenMatch if the block matches the detector, None otherwise.
+    """
+    if payload.kind != RuleKind.TOKEN_DETECTOR:
+        return None
+
+    all_text = " ".join(block.text_lines)
+    token_type = payload.token_type or "unknown"
+
+    # Apply detector based on type
+    if payload.detector == "regex" and payload.pattern:
+        try:
+            pattern = re.compile(payload.pattern, re.IGNORECASE)
+            match = pattern.search(all_text)
+            if match:
+                return TokenMatch(
+                    token_type=token_type,
+                    value=match.group(0),
+                    bbox=list(block.bbox),
+                    confidence=block.confidence,
+                )
+        except re.error:
+            logger.warning("invalid_regex_pattern", pattern=payload.pattern)
+            return None
+
+    elif payload.detector == "boxed_number":
+        # Look for digits - "boxed" check would require visual analysis
+        # For now, just detect number pattern
+        number_pattern = payload.pattern or r"\d{1,4}"
+        try:
+            pattern = re.compile(number_pattern)
+            match = pattern.search(all_text)
+            if match:
+                return TokenMatch(
+                    token_type=token_type,
+                    value=match.group(0),
+                    bbox=list(block.bbox),
+                    confidence=block.confidence,
+                )
+        except re.error:
+            return None
+
+    elif payload.detector == "ocr_keyword":
+        # Check if any word in the pattern list matches
+        if payload.pattern:
+            keywords = [k.strip().upper() for k in payload.pattern.split("|")]
+            words = all_text.upper().split()
+            for word in words:
+                if word in keywords:
+                    return TokenMatch(
+                        token_type=token_type,
+                        value=word,
+                        bbox=list(block.bbox),
+                        confidence=block.confidence,
+                    )
+
+    # Check min_len if specified
+    if payload.min_len:
+        letter_tokens = re.findall(r'[A-Za-z]+', all_text)
+        for token in letter_tokens:
+            if len(token) >= payload.min_len:
+                return TokenMatch(
+                    token_type=token_type,
+                    value=token,
+                    bbox=list(block.bbox),
+                    confidence=block.confidence,
+                )
+
+    return None
+
+
+def should_exclude(
+    block: TextBlockLike,
+    exclude_payloads: list[RulePayload],
+) -> tuple[bool, Optional[str]]:
+    """Check if a block should be excluded based on exclude payloads.
+
+    Returns (should_exclude, reason).
+    """
+    all_text = " ".join(block.text_lines).upper()
+
+    for payload in exclude_payloads:
+        if payload.kind != RuleKind.EXCLUDE:
+            continue
+
+        if payload.detector == "regex" and payload.pattern:
+            try:
+                pattern = re.compile(payload.pattern, re.IGNORECASE)
+                if pattern.search(all_text):
+                    return True, f"Matched exclude pattern: {payload.pattern}"
+            except re.error:
+                continue
+
+    return False, None
+
+
+# =============================================================================
 # Spatial Room Labeler
 # =============================================================================
 
 class SpatialRoomLabeler:
-    """Extracts rooms from text blocks using spatial evidence.
+    """Extracts rooms from text blocks using guide payloads.
 
-    Uses geometric relationships to distinguish room labels from door numbers.
-    Preserves ambiguity explicitly when evidence is insufficient.
+    Reads machine-executable payloads from the guide and applies them.
+    If no payloads are present, returns 0 rooms and logs 'no_machine_rules'.
     """
 
     def __init__(
         self,
         policy: ExtractionPolicy = ExtractionPolicy.CONSERVATIVE,
         door_proximity_threshold: float = 100.0,
+        payloads: Optional[list[RulePayload]] = None,
     ):
         self.policy = policy
         self.door_proximity_threshold = door_proximity_threshold
+        self.payloads = payloads or []
+
+        # Categorize payloads
+        self.room_name_detectors: list[RulePayload] = []
+        self.room_number_detectors: list[RulePayload] = []
+        self.exclude_rules: list[RulePayload] = []
+        self.pairing_rules: list[RulePayload] = []
+
+        for p in self.payloads:
+            if p.kind == RuleKind.TOKEN_DETECTOR:
+                if p.token_type == "room_name":
+                    self.room_name_detectors.append(p)
+                elif p.token_type == "room_number":
+                    self.room_number_detectors.append(p)
+            elif p.kind == RuleKind.EXCLUDE:
+                self.exclude_rules.append(p)
+            elif p.kind == RuleKind.PAIRING:
+                self.pairing_rules.append(p)
 
     def extract_rooms(
         self,
@@ -253,7 +271,7 @@ class SpatialRoomLabeler:
         text_blocks: list[TextBlockLike],
         door_symbols: Optional[list[DoorSymbolLike]] = None,
     ) -> list[ExtractedRoom]:
-        """Extract rooms from detected text blocks.
+        """Extract rooms from detected text blocks using guide payloads.
 
         Args:
             page_id: The page ID
@@ -264,13 +282,82 @@ class SpatialRoomLabeler:
             List of ExtractedRoom objects
         """
         door_symbols = door_symbols or []
+
+        # Check if we have any machine rules
+        has_machine_rules = bool(
+            self.room_name_detectors or
+            self.room_number_detectors or
+            self.exclude_rules
+        )
+
+        if not has_machine_rules:
+            logger.info(
+                "no_machine_rules",
+                page_id=str(page_id),
+                blocks_count=len(text_blocks),
+                message="No payloads in guide, returning 0 rooms",
+            )
+            return []
+
+        # Metrics
+        tokens_found_by_type: dict[str, int] = {}
+        pairs_formed = 0
+        rejected_excluded = 0
+        rejected_no_pair = 0
+
         extracted_rooms = []
 
         for block in text_blocks:
             try:
-                room = self._process_block(page_id, block, door_symbols)
-                if room is not None:
+                # Step 1: Check exclusions
+                excluded, reason = should_exclude(block, self.exclude_rules)
+                if excluded:
+                    rejected_excluded += 1
+                    logger.debug(
+                        "block_excluded",
+                        page_id=str(page_id),
+                        text=" ".join(block.text_lines),
+                        reason=reason,
+                    )
+                    continue
+
+                # Step 2: Try to detect room_name
+                room_name_match: Optional[TokenMatch] = None
+                for detector in self.room_name_detectors:
+                    match = apply_token_detector(block, detector)
+                    if match:
+                        room_name_match = match
+                        tokens_found_by_type["room_name"] = tokens_found_by_type.get("room_name", 0) + 1
+                        break
+
+                # Step 3: Try to detect room_number
+                room_number_match: Optional[TokenMatch] = None
+                for detector in self.room_number_detectors:
+                    match = apply_token_detector(block, detector)
+                    if match:
+                        room_number_match = match
+                        tokens_found_by_type["room_number"] = tokens_found_by_type.get("room_number", 0) + 1
+                        break
+
+                # Step 4: We need at least a room_name to emit
+                if not room_name_match:
+                    rejected_no_pair += 1
+                    continue
+
+                # We have a room_name, optionally with room_number
+                pairs_formed += 1
+
+                # Step 5: Build room
+                room = self._build_room(
+                    page_id=page_id,
+                    block=block,
+                    room_name=room_name_match.value,
+                    room_number=room_number_match.value if room_number_match else None,
+                    door_symbols=door_symbols,
+                )
+                if room:
                     extracted_rooms.append(room)
+
             except Exception as e:
                 logger.warning(
                     "spatial_labeler_block_error",
@@ -279,64 +366,37 @@ class SpatialRoomLabeler:
                 )
                 continue
 
-        # Log final result with rooms_emitted for visibility
+        # Log metrics
         logger.info(
-            "spatial_rooms_extracted",
+            "phase3_3_labeler_metrics",
             page_id=str(page_id),
-            blocks_processed=len(text_blocks),
+            tokens_found_by_type=tokens_found_by_type,
+            pairs_formed=pairs_formed,
+            rejected_excluded=rejected_excluded,
+            rejected_no_pair=rejected_no_pair,
             rooms_emitted=len(extracted_rooms),
-            policy=self.policy.value,
         )
 
         return extracted_rooms
 
-    def _process_block(
+    def _build_room(
         self,
         page_id: UUID,
         block: TextBlockLike,
+        room_name: str,
+        room_number: Optional[str],
         door_symbols: list[DoorSymbolLike],
     ) -> Optional[ExtractedRoom]:
-        """Process a single text block for room extraction.
+        """Build an ExtractedRoom from matched tokens."""
 
-        Returns None if the block should not be extracted as a room.
-        """
-        # Step 1: Check if it's a candidate room label
-        if not is_candidate_room_label(block):
-            logger.debug(
-                "block_not_candidate_room_label",
-                page_id=str(page_id),
-                text=" ".join(block.text_lines),
-            )
-            return None
-
-        # Step 2: Check proximity to door symbols
-        # If the block is near a door, it might be a door number, not a room label
-        # However, room labels like "CLASSE 203" can be near doors
-        # The key is: room labels have LETTER + NUMBER, door numbers have NUMBER only
-        # Since we already checked is_candidate_room_label (which requires letters),
-        # we can proceed. But we note proximity for context.
+        # Check proximity to doors
         near_door = is_near_door_symbol(
             block.bbox, door_symbols, self.door_proximity_threshold
         )
 
-        # Step 3: Extract room number and name
-        room_number = extract_room_number(block)
-        room_name = extract_room_name(block)
-
-        # Room name alone is valid (e.g., "CORRIDOR", "ESCALIER")
-        # Room number alone is NOT valid (could be door number)
-        if not room_name:
-            logger.debug(
-                "no_room_name_found",
-                page_id=str(page_id),
-                text=" ".join(block.text_lines),
-            )
-            return None
-
-        # Step 4: Check confidence level
         confidence_level = _confidence_to_level(block.confidence)
 
-        # Step 5: Handle low confidence
+        # Handle low confidence
         if confidence_level == ConfidenceLevel.LOW:
             if self.policy == ExtractionPolicy.CONSERVATIVE:
                 logger.debug(
@@ -346,37 +406,20 @@ class SpatialRoomLabeler:
                     confidence=block.confidence,
                 )
                 return None
-            # RELAXED policy: allow but flag
-            logger.info(
-                "accepting_low_confidence_room_relaxed",
-                page_id=str(page_id),
-                room_number=room_number,
-                confidence=block.confidence,
-            )
 
-        # Step 6: Check for ambiguity
+        # Check for ambiguity
         ambiguity = False
         ambiguity_reason = None
 
-        # If room name is unclear (contains non-letter chars), mark as ambiguous
-        all_text = " ".join(block.text_lines)
-        if room_name and not room_name.isalpha():
-            ambiguity = True
-            ambiguity_reason = f"Room name contains non-letter characters: {room_name}"
-
-        # If near door and low confidence, mark as ambiguous
         if near_door and confidence_level == ConfidenceLevel.LOW:
             ambiguity = True
             ambiguity_reason = "Low confidence block near door symbol"
 
-        # Step 7: Build the extracted room
-        # Label: "ROOM_NAME ROOM_NUMBER" or just "ROOM_NAME" if no number
+        # Build label
         if room_name and room_number:
             label = f"{room_name} {room_number}"
-        elif room_name:
-            label = room_name
         else:
-            label = room_number or "UNKNOWN"
+            label = room_name
 
         # Generate deterministic ID
         x, y, w, h = block.bbox
@@ -388,14 +431,12 @@ class SpatialRoomLabeler:
             room_number=room_number,
         )
 
-        # Geometry uses the label bbox
         geometry = Geometry(
             type="bbox",
             bbox=list(block.bbox),
         )
 
-        # Build sources
-        sources = ["text_detected", "spatial_labeling"]
+        sources = ["text_detected", "spatial_labeling", "guide_payload"]
         if self.policy == ExtractionPolicy.RELAXED:
             sources.append("extraction_policy:relaxed")
             sources.append("guide_source:provisional")
@@ -411,7 +452,7 @@ class SpatialRoomLabeler:
             room_number=room_number,
             room_name=room_name,
             label_bbox=list(block.bbox),
-            room_region_bbox=None,  # Phase 3.3 Task 3: will be set when region inference is implemented
+            room_region_bbox=None,
             ambiguity=ambiguity,
             ambiguity_reason=ambiguity_reason,
         )
@@ -427,3 +468,37 @@ class SpatialRoomLabeler:
         )
 
         return room
+
+
+# =============================================================================
+# Legacy compatibility - will be removed once guide payloads are generated
+# =============================================================================
+
+def is_candidate_room_label(block: TextBlockLike) -> bool:
+    """DEPRECATED: Legacy function for backward compatibility.
+
+    This function should NOT be used in new code.
+    Use SpatialRoomLabeler with payloads instead.
+    """
+    # Minimal check: has letters with length >= 2
+    all_text = " ".join(block.text_lines)
+    letter_tokens = re.findall(r'[A-Za-z]{2,}', all_text)
+    return len(letter_tokens) > 0
+
+
+def extract_room_number(block: TextBlockLike) -> Optional[str]:
+    """Extract the room number from a text block."""
+    all_text = " ".join(block.text_lines)
+    match = re.search(r'\b(\d{2,4}(-\d+)?)\b', all_text)
+    if match:
+        return match.group(1)
+    return None
+
+
+def extract_room_name(block: TextBlockLike) -> Optional[str]:
+    """Extract the room name from a text block."""
+    all_text = " ".join(block.text_lines)
+    match = re.search(r'\b([A-Za-z]+)\b', all_text)
+    if match:
+        return match.group(1)
+    return None
