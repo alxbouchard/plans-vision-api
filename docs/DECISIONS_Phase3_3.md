@@ -17,25 +17,31 @@ Public API v2 response stays unchanged until explicit approval.
 Decision 5 Provisional mode boosts recall carefully
 In provisional_only mode we can relax thresholds but only for explicitly labeled objects.
 
-Decision 6 Room Label Rules Are Phase 3.3 Required Extraction Spec
+Decision 6 – Mandatory Room Label Payloads (Phase 3.3)
 
-Context:
-Phase 3.3 extraction depends on machine executable payloads derived from the Visual Guide.
-Rooms cannot be emitted unless the guide contains payloads for:
-- token_detector(room_name)
-- token_detector(room_number)
-- pairing(room_name ↔ room_number)
+In Phase 3.3, spatial room extraction is strictly driven by the Visual Guide.
 
-Decision:
-For Phase 3.3, room label conventions are treated as required extraction specification, not optional "nice to have" knowledge.
-If room labels are visually present on analyzed pages, the guide MUST include the three payload types above in stable_rules_json.
-These rules are allowed to be medium confidence and may be admitted even if their stability_score is below the global stable threshold (minimum 0.5), provided there is visible evidence on the analyzed pages.
-The guide must document limitations instead of omitting required payloads.
+A stable guide MUST include the following machine-executable payloads
+when room labels are visibly present on a PLAN page:
 
-Implications:
-- No hardcoded word lists in code
-- All extraction behavior remains data driven from guide payloads
-- Fail fast behavior: if required payloads are missing, Phase 3.3 extraction returns zero rooms and logs missing_required_payloads
+1. token_detector for room_name
+2. token_detector for room_number
+3. pairing rule linking room_name and room_number
+
+If any of these payloads are missing:
+- Phase 3.3 extraction MUST be considered invalid
+- SpatialRoomLabeler MUST NOT attempt recovery or fallback
+- rooms_emitted is expected to be 0
+- The phase is marked as FAILED
+
+Rationale:
+The SpatialRoomLabeler is a frozen execution engine.
+All semantic intelligence MUST come from the guide.
+Any fallback or hardcoded behavior would break the MCAF principle
+and reintroduce hidden logic.
+
+This decision is final for Phase 3.3.
+Any change requires an explicit RFC and new test gates.
 
 Decision 7 Phase 3.3 Validation Criteria (FROZEN)
 
