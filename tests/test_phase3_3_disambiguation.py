@@ -584,3 +584,114 @@ class TestPipelineHook:
         )
         # Result is list (could be empty from stub)
         assert isinstance(result, list)
+
+
+# =============================================================================
+# Ticket 5: TextBlockDetector vision implementation tests
+# =============================================================================
+
+class TestTextBlockDetectorVision:
+    """Test TextBlockDetector with mocked vision client."""
+
+    @pytest.mark.asyncio
+    async def test_vision_detector_parses_valid_json(self):
+        """Vision detector parses valid JSON response from model."""
+        from src.extraction.text_block_detector import TextBlockDetector
+        from unittest.mock import AsyncMock, MagicMock
+
+        # Mock vision client
+        mock_client = MagicMock()
+        mock_client.analyze_image = AsyncMock(return_value='[{"bbox": [100, 200, 150, 50], "text": "CLASSE 203", "confidence": 0.9}]')
+
+        detector = TextBlockDetector(use_vision=True, client=mock_client)
+        result = await detector.detect(page_id=uuid4(), image_bytes=b"fake")
+
+        assert len(result) == 1
+        assert result[0].text == "CLASSE 203"
+        assert result[0].bbox == [100, 200, 150, 50]
+        assert result[0].confidence == 0.9
+
+    @pytest.mark.asyncio
+    async def test_vision_detector_handles_empty_array(self):
+        """Vision detector handles empty array response."""
+        from src.extraction.text_block_detector import TextBlockDetector
+        from unittest.mock import AsyncMock, MagicMock
+
+        mock_client = MagicMock()
+        mock_client.analyze_image = AsyncMock(return_value='[]')
+
+        detector = TextBlockDetector(use_vision=True, client=mock_client)
+        result = await detector.detect(page_id=uuid4(), image_bytes=b"fake")
+
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_vision_detector_fails_on_invalid_json(self):
+        """Vision detector raises ValueError on invalid JSON."""
+        from src.extraction.text_block_detector import TextBlockDetector
+        from unittest.mock import AsyncMock, MagicMock
+
+        mock_client = MagicMock()
+        mock_client.analyze_image = AsyncMock(return_value='not valid json')
+
+        detector = TextBlockDetector(use_vision=True, client=mock_client)
+
+        with pytest.raises(ValueError) as exc_info:
+            await detector.detect(page_id=uuid4(), image_bytes=b"fake")
+
+        assert "invalid JSON" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_vision_detector_fails_on_non_array(self):
+        """Vision detector raises ValueError if response is not array."""
+        from src.extraction.text_block_detector import TextBlockDetector
+        from unittest.mock import AsyncMock, MagicMock
+
+        mock_client = MagicMock()
+        mock_client.analyze_image = AsyncMock(return_value='{"not": "array"}')
+
+        detector = TextBlockDetector(use_vision=True, client=mock_client)
+
+        with pytest.raises(ValueError) as exc_info:
+            await detector.detect(page_id=uuid4(), image_bytes=b"fake")
+
+        assert "JSON array" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_vision_detector_skips_invalid_blocks(self):
+        """Vision detector skips blocks with invalid data."""
+        from src.extraction.text_block_detector import TextBlockDetector
+        from unittest.mock import AsyncMock, MagicMock
+
+        # One valid, one with empty text (invalid)
+        mock_client = MagicMock()
+        mock_client.analyze_image = AsyncMock(return_value='[{"bbox": [100, 200, 150, 50], "text": "VALID", "confidence": 0.9}, {"bbox": [0, 0, 0, 0], "text": "", "confidence": 0.5}]')
+
+        detector = TextBlockDetector(use_vision=True, client=mock_client)
+        result = await detector.detect(page_id=uuid4(), image_bytes=b"fake")
+
+        # Only the valid block should be included
+        assert len(result) == 1
+        assert result[0].text == "VALID"
+
+    @pytest.mark.asyncio
+    async def test_vision_detector_handles_multiple_blocks(self):
+        """Vision detector parses multiple text blocks."""
+        from src.extraction.text_block_detector import TextBlockDetector
+        from unittest.mock import AsyncMock, MagicMock
+
+        mock_client = MagicMock()
+        mock_client.analyze_image = AsyncMock(return_value='''[
+            {"bbox": [100, 200, 150, 50], "text": "CLASSE\\n203", "confidence": 0.92},
+            {"bbox": [50, 320, 30, 18], "text": "203", "confidence": 0.88},
+            {"bbox": [150, 320, 40, 18], "text": "203-1", "confidence": 0.85}
+        ]''')
+
+        detector = TextBlockDetector(use_vision=True, client=mock_client)
+        result = await detector.detect(page_id=uuid4(), image_bytes=b"fake")
+
+        assert len(result) == 3
+        assert result[0].text == "CLASSE\n203"
+        assert result[0].text_lines == ["CLASSE", "203"]
+        assert result[1].text == "203"
+        assert result[2].text == "203-1"
