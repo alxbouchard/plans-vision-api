@@ -178,7 +178,19 @@ async def _run_extract_objects(
         for page in pages:
             classification = _page_classifications.get(page.id)
             if not classification:
+                logger.warning(
+                    "page_no_classification",
+                    page_id=str(page.id),
+                )
                 continue
+
+            # Log page type for debugging Phase 3.3 flow
+            logger.info(
+                "extract_objects_page",
+                page_id=str(page.id),
+                page_type=classification.page_type.value,
+                confidence=classification.confidence,
+            )
 
             try:
                 image_bytes = await storage.read_image_bytes(page.file_path)
@@ -369,16 +381,22 @@ async def _run_phase3_3_spatial_labeling(
         )
         return []
 
+    # LOG 2: Mandatory log BEFORE calling detector (so it appears even if detector fails)
+    logger.info(
+        "phase3_3_text_block_detector_called",
+        page_id=str(page_id),
+        phase3_3_text_block_detector_called=True,
+    )
+
     try:
         # Step 1: Detect text blocks (Ticket 5 will add vision implementation)
         detector = TextBlockDetector(use_vision=True)
         text_blocks = await detector.detect(page_id=page_id, image_bytes=image_bytes)
 
-        # LOG 2: Mandatory log when TextBlockDetector is called
+        # LOG 2b: Result after successful detection
         logger.info(
-            "phase3_3_text_block_detector_called",
+            "phase3_3_text_blocks_detected",
             page_id=str(page_id),
-            phase3_3_text_block_detector_called=True,
             blocks_found=len(text_blocks),
         )
 
