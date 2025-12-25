@@ -83,11 +83,12 @@ class VisionClient:
     async def analyze_image(
         self,
         image_bytes: bytes,
-        prompt: str,
-        model: str,
+        prompt: Optional[str] = None,
+        model: str = "gpt-5.2-pro",
         reasoning_effort: str = "high",
         verbosity: str = "high",
         system_prompt: Optional[str] = None,
+        user_prompt: Optional[str] = None,  # Alias for prompt (backward compat)
     ) -> str:
         """
         Analyze an image using GPT-5.2 Responses API.
@@ -99,10 +100,15 @@ class VisionClient:
             reasoning_effort: Reasoning effort level (low, medium, high, xhigh)
             verbosity: Text verbosity level (low, medium, high)
             system_prompt: Optional system-level instructions
+            user_prompt: Alias for prompt (backward compatibility)
 
         Returns:
             The model's text response
         """
+        # Support user_prompt as alias for prompt (backward compat)
+        actual_prompt = prompt or user_prompt
+        if not actual_prompt:
+            raise ValueError("Either 'prompt' or 'user_prompt' must be provided")
         # Encode image to base64
         image_b64 = base64.b64encode(image_bytes).decode("utf-8")
 
@@ -130,7 +136,7 @@ class VisionClient:
                 },
                 {
                     "type": "input_text",
-                    "text": prompt
+                    "text": actual_prompt
                 }
             ]
         })

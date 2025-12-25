@@ -848,3 +848,128 @@ class TestE2EFlow:
 
         # Should return empty, no vision calls made
         assert rooms == []
+
+
+# =============================================================================
+# Mandatory: Test detector invocation when flag is true
+# =============================================================================
+
+class TestDetectorInvocationMandatory:
+    """Mandatory tests: Detector MUST be called when flag is enabled.
+
+    These tests FAIL if enable_phase3_3_spatial_labeling=true but the pipeline
+    does not actually call TextBlockDetector.
+    """
+
+    @pytest.mark.asyncio
+    async def test_detector_must_be_called_when_flag_true(self, monkeypatch):
+        """FAIL if flag=true but TextBlockDetector is never called."""
+        from src.extraction.pipeline import _run_phase3_3_spatial_labeling
+        from src.config import Settings
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        # Enable feature flag
+        monkeypatch.setenv("ENABLE_PHASE3_3_SPATIAL_LABELING", "true")
+
+        # Track if detector was called
+        detector_called = False
+
+        original_detect = None
+
+        async def tracking_detect(self, page_id, image_bytes, **kwargs):
+            nonlocal detector_called
+            detector_called = True
+            # Return empty list (like stub) but we tracked the call
+            return []
+
+        with patch('src.extraction.pipeline.TextBlockDetector') as MockDetector:
+            mock_instance = MagicMock()
+            mock_instance.detect = AsyncMock(side_effect=lambda **kwargs: tracking_detect(mock_instance, **kwargs))
+            MockDetector.return_value = mock_instance
+
+            page_id = __import__('uuid').uuid4()
+            settings = Settings()
+
+            await _run_phase3_3_spatial_labeling(
+                page_id=page_id,
+                image_bytes=b"fake_image",
+                doors=[],
+                settings=settings,
+            )
+
+            # Assert detector was instantiated with use_vision=True
+            MockDetector.assert_called_once_with(use_vision=True)
+
+            # Assert detect method was called
+            mock_instance.detect.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_labeler_must_be_called_when_blocks_found(self, monkeypatch):
+        """FAIL if blocks are found but SpatialRoomLabeler is never called."""
+        from src.extraction.pipeline import _run_phase3_3_spatial_labeling
+        from src.config import Settings
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from src.extraction.text_block_detector import TextBlock
+
+        # Enable feature flag
+        monkeypatch.setenv("ENABLE_PHASE3_3_SPATIAL_LABELING", "true")
+
+        # Mock detector to return some text blocks
+        mock_blocks = [
+            TextBlock(bbox=[200, 150, 100, 60], text="CLASSE\n203", confidence=0.92)
+        ]
+
+        with patch('src.extraction.pipeline.TextBlockDetector') as MockDetector:
+            mock_detector_instance = MagicMock()
+            mock_detector_instance.detect = AsyncMock(return_value=mock_blocks)
+            MockDetector.return_value = mock_detector_instance
+
+            with patch('src.extraction.pipeline.SpatialRoomLabeler') as MockLabeler:
+                mock_labeler_instance = MagicMock()
+                mock_labeler_instance.extract_rooms = MagicMock(return_value=[])
+                MockLabeler.return_value = mock_labeler_instance
+
+                page_id = __import__('uuid').uuid4()
+                settings = Settings()
+
+                await _run_phase3_3_spatial_labeling(
+                    page_id=page_id,
+                    image_bytes=b"fake_image",
+                    doors=[],
+                    settings=settings,
+                )
+
+                # Assert labeler was instantiated
+                MockLabeler.assert_called_once()
+
+                # Assert extract_rooms was called with text_blocks
+                mock_labeler_instance.extract_rooms.assert_called_once()
+                call_kwargs = mock_labeler_instance.extract_rooms.call_args
+                assert 'text_blocks' in call_kwargs.kwargs or len(call_kwargs.args) >= 1
+
+    @pytest.mark.asyncio
+    async def test_detector_not_called_when_flag_false(self, monkeypatch):
+        """Detector MUST NOT be called when flag=false (Gate 3 safety)."""
+        from src.extraction.pipeline import _run_phase3_3_spatial_labeling
+        from src.config import Settings
+        from unittest.mock import patch
+
+        # Disable feature flag
+        monkeypatch.setenv("ENABLE_PHASE3_3_SPATIAL_LABELING", "false")
+
+        with patch('src.extraction.pipeline.TextBlockDetector') as MockDetector:
+            page_id = __import__('uuid').uuid4()
+            settings = Settings()
+
+            result = await _run_phase3_3_spatial_labeling(
+                page_id=page_id,
+                image_bytes=b"fake_image",
+                doors=[],
+                settings=settings,
+            )
+
+            # Detector should NOT be instantiated
+            MockDetector.assert_not_called()
+
+            # Result should be empty
+            assert result == []

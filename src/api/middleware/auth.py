@@ -84,7 +84,7 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
     """
 
     # Paths that don't require authentication
-    EXEMPT_PATHS = {"/health", "/docs", "/openapi.json", "/redoc"}
+    EXEMPT_PATHS = {"/health", "/docs", "/openapi.json", "/redoc", "/debug/flags"}
 
     async def dispatch(
         self,

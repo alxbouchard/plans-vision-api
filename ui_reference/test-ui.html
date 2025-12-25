@@ -202,11 +202,38 @@ See docs in ui_reference/docs for requirements.
     }
     .step.complete .step-number { background: #28a745; }
     .step.error .step-number { background: #dc3545; }
+
+    .feature-badge {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 600;
+      margin-left: 10px;
+    }
+    .feature-badge.on {
+      background: #28a745;
+      color: #fff;
+    }
+    .feature-badge.off {
+      background: #6c757d;
+      color: #fff;
+    }
+    .header-badges {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
   </style>
 </head>
 <body>
   <div class="container">
-    <h1>plans-vision-api - UI Reference Demo</h1>
+    <div class="header-badges">
+      <h1 style="margin: 0;">plans-vision-api - UI Reference Demo</h1>
+      <span class="feature-badge off" id="phase33Badge">Phase 3.3: OFF</span>
+    </div>
     <p>PDF-first workflow: Upload PDF master, analyze, extract, query, render annotated PDF.</p>
 
     <!-- Auth Section -->
@@ -324,6 +351,30 @@ See docs in ui_reference/docs for requirements.
 
     // API base URL
     const API_BASE = 'http://localhost:8000';
+
+    // Fetch and display feature flags on load
+    async function fetchFeatureFlags() {
+      try {
+        const response = await fetch(`${API_BASE}/debug/flags`);
+        const flags = await response.json();
+        const badge = document.getElementById('phase33Badge');
+        if (flags.enable_phase3_3_spatial_labeling) {
+          badge.textContent = 'Phase 3.3: ON';
+          badge.classList.remove('off');
+          badge.classList.add('on');
+        } else {
+          badge.textContent = 'Phase 3.3: OFF';
+          badge.classList.remove('on');
+          badge.classList.add('off');
+        }
+      } catch (err) {
+        console.warn('Could not fetch feature flags:', err);
+        document.getElementById('phase33Badge').textContent = 'Phase 3.3: ?';
+      }
+    }
+
+    // Fetch flags on page load
+    document.addEventListener('DOMContentLoaded', fetchFeatureFlags);
 
     // Get API key
     function getApiKey() {

@@ -86,6 +86,22 @@ async def start_extraction(
         has_stable = guide.stable is not None
         extraction_policy = ExtractionPolicy.RELAXED if (has_provisional and not has_stable) else ExtractionPolicy.CONSERVATIVE
 
+        # Determine guide source for logging
+        guide_source = "stable" if has_stable else ("provisional" if has_provisional else "none")
+
+        # Get feature flag status
+        from src.config import get_settings
+        settings = get_settings()
+
+        # LOG 1: Phase 3.3 status at extraction start (mandatory structured log)
+        logger.info(
+            "phase3_3_extraction_start",
+            project_id=str(project_id),
+            phase3_3_enabled=settings.enable_phase3_3_spatial_labeling,
+            extraction_policy=extraction_policy.value,
+            guide_source=guide_source,
+        )
+
         logger.info(
             "extraction_policy_determined",
             project_id=str(project_id),

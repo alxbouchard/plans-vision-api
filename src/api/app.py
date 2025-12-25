@@ -36,6 +36,21 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await init_database()
     logger.info("database_initialized", message="Database initialized")
 
+    # Log feature flags status
+    settings = get_settings()
+    phase3_3_status = "ON" if settings.enable_phase3_3_spatial_labeling else "OFF"
+    openai_status = "present" if settings.openai_api_key not in ("", "test", "dummy") else "missing/test"
+    print(f"\n{'='*60}")
+    print(f"FEATURE FLAGS:")
+    print(f"  PHASE3_3_SPATIAL_LABELING = {phase3_3_status}")
+    print(f"  OPENAI_API_KEY = {openai_status}")
+    print(f"{'='*60}\n")
+    logger.info(
+        "feature_flags_status",
+        enable_phase3_3_spatial_labeling=settings.enable_phase3_3_spatial_labeling,
+        openai_key_present=settings.openai_api_key not in ("", "test", "dummy"),
+    )
+
     # Optionally register a demo API key for local testing
     # Set PLANS_VISION_DEMO_KEY env var to enable
     import os
@@ -161,6 +176,18 @@ def create_app() -> FastAPI:
     async def health_check() -> dict:
         """Health check endpoint."""
         return {"status": "healthy", "version": "1.0.0"}
+
+    # Debug flags endpoint (exempt from auth for dev convenience)
+    @app.get("/debug/flags", tags=["debug"])
+    async def debug_flags() -> dict:
+        """Return current feature flag status for debugging."""
+        import os
+        settings = get_settings()
+        return {
+            "enable_phase3_3_spatial_labeling": settings.enable_phase3_3_spatial_labeling,
+            "openai_key_present": settings.openai_api_key not in ("", "test", "dummy"),
+            "env": "dev" if settings.log_level == "DEBUG" else "prod",
+        }
 
     return app
 

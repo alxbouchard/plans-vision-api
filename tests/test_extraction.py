@@ -850,3 +850,153 @@ class TestPhase32_RelaxedExtractionPolicy:
         assert _is_valid_relaxed_room_number("A-101") is False  # contains letters
         assert _is_valid_relaxed_room_number("") is False
         assert _is_valid_relaxed_room_number(None) is False  # type: ignore
+
+
+# =============================================================================
+# VisionClient backward compatibility: user_prompt alias
+# =============================================================================
+
+class TestVisionClientUserPromptAlias:
+    """
+    Test that VisionClient.analyze_image accepts both 'prompt' and 'user_prompt'.
+
+    This ensures backward compatibility with extractors that use user_prompt.
+    """
+
+    @pytest.mark.asyncio
+    async def test_analyze_image_accepts_prompt(self):
+        """Test analyze_image works with 'prompt' parameter."""
+        from src.agents.client import VisionClient
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        with patch.object(VisionClient, '__init__', lambda self: None):
+            client = VisionClient()
+            client.client = MagicMock()
+
+            # Mock the responses.create call
+            mock_response = MagicMock()
+            mock_response.output = []
+            mock_response.usage = None
+            client.client.responses = MagicMock()
+            client.client.responses.create = AsyncMock(return_value=mock_response)
+
+            # Call with 'prompt' - should work
+            result = await client.analyze_image(
+                image_bytes=b"fake",
+                prompt="test prompt",
+                model="gpt-5.2-pro",
+            )
+
+            # Verify the call was made
+            client.client.responses.create.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_analyze_image_accepts_user_prompt(self):
+        """Test analyze_image works with 'user_prompt' parameter (backward compat)."""
+        from src.agents.client import VisionClient
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        with patch.object(VisionClient, '__init__', lambda self: None):
+            client = VisionClient()
+            client.client = MagicMock()
+
+            # Mock the responses.create call
+            mock_response = MagicMock()
+            mock_response.output = []
+            mock_response.usage = None
+            client.client.responses = MagicMock()
+            client.client.responses.create = AsyncMock(return_value=mock_response)
+
+            # Call with 'user_prompt' - should work (backward compat)
+            result = await client.analyze_image(
+                image_bytes=b"fake",
+                user_prompt="test prompt via user_prompt",
+                model="gpt-5.2-pro",
+            )
+
+            # Verify the call was made
+            client.client.responses.create.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_analyze_image_requires_either_prompt(self):
+        """Test analyze_image raises if neither prompt nor user_prompt provided."""
+        from src.agents.client import VisionClient
+        from unittest.mock import patch
+
+        with patch.object(VisionClient, '__init__', lambda self: None):
+            client = VisionClient()
+
+            # Call without any prompt - should raise
+            with pytest.raises(ValueError, match="Either 'prompt' or 'user_prompt'"):
+                await client.analyze_image(
+                    image_bytes=b"fake",
+                    model="gpt-5.2-pro",
+                )
+
+    @pytest.mark.asyncio
+    async def test_door_extractor_uses_user_prompt_successfully(self):
+        """Test DoorExtractor works with the client (uses user_prompt internally)."""
+        from src.extraction.door_extractor import DoorExtractor
+        from src.models.entities import ExtractionPolicy
+        from unittest.mock import AsyncMock
+
+        page_id = uuid4()
+
+        # Mock client that accepts user_prompt
+        mock_client = AsyncMock()
+        mock_client.analyze_image.return_value = '''{"doors": [
+            {"door_number": "D1", "door_type": "single", "bbox": [150, 300, 30, 40], "confidence": 0.9}
+        ]}'''
+
+        extractor = DoorExtractor(client=mock_client, policy=ExtractionPolicy.CONSERVATIVE)
+        results = await extractor.extract(page_id, b"fake_image_bytes")
+
+        # Should work without TypeError
+        assert len(results) == 1
+        assert results[0].label == "D1"
+
+        # Verify user_prompt was used (extractors use user_prompt=...)
+        call_kwargs = mock_client.analyze_image.call_args.kwargs
+        assert 'user_prompt' in call_kwargs or 'prompt' in call_kwargs
+
+    @pytest.mark.asyncio
+    async def test_room_extractor_uses_user_prompt_successfully(self):
+        """Test RoomExtractor works with the client (uses user_prompt internally)."""
+        from src.extraction.room_extractor import RoomExtractor
+        from src.models.entities import ExtractionPolicy
+        from unittest.mock import AsyncMock
+
+        page_id = uuid4()
+
+        # Mock client that accepts user_prompt
+        mock_client = AsyncMock()
+        mock_client.analyze_image.return_value = '''{"rooms": [
+            {"room_number": "203", "room_name": "CLASSE", "bbox": [100, 200, 300, 150], "confidence": 0.9}
+        ]}'''
+
+        extractor = RoomExtractor(client=mock_client, policy=ExtractionPolicy.CONSERVATIVE)
+        results = await extractor.extract(page_id, b"fake_image_bytes")
+
+        # Should work without TypeError
+        assert len(results) == 1
+        assert results[0].room_number == "203"
+
+    @pytest.mark.asyncio
+    async def test_schedule_extractor_uses_user_prompt_successfully(self):
+        """Test ScheduleExtractor works with the client (uses user_prompt internally)."""
+        from src.extraction.schedule_extractor import ScheduleExtractor
+        from unittest.mock import AsyncMock
+
+        page_id = uuid4()
+
+        # Mock client that accepts user_prompt
+        mock_client = AsyncMock()
+        mock_client.analyze_image.return_value = '''{"schedules": [
+            {"schedule_type": "door_schedule", "title": "Door Schedule", "bbox": [50, 50, 500, 300], "confidence": 0.9, "columns": ["No.", "Size", "Type"], "rows": [["D1", "900x2100", "Wood"]]}
+        ]}'''
+
+        extractor = ScheduleExtractor(client=mock_client)
+        results = await extractor.extract(page_id, b"fake_image_bytes")
+
+        # Should work without TypeError
+        assert len(results) == 1

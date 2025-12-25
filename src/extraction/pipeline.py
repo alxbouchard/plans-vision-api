@@ -369,21 +369,17 @@ async def _run_phase3_3_spatial_labeling(
         )
         return []
 
-    logger.info(
-        "phase3_3_detector_called",
-        page_id=str(page_id),
-        policy=policy.value,
-    )
-
     try:
         # Step 1: Detect text blocks (Ticket 5 will add vision implementation)
         detector = TextBlockDetector(use_vision=True)
         text_blocks = await detector.detect(page_id=page_id, image_bytes=image_bytes)
 
+        # LOG 2: Mandatory log when TextBlockDetector is called
         logger.info(
-            "phase3_3_text_blocks_count",
+            "phase3_3_text_block_detector_called",
             page_id=str(page_id),
-            count=len(text_blocks),
+            phase3_3_text_block_detector_called=True,
+            blocks_found=len(text_blocks),
         )
 
         if not text_blocks:
@@ -403,20 +399,22 @@ async def _run_phase3_3_spatial_labeling(
             door_symbols=door_symbols,
         )
 
-        logger.info(
-            "phase3_3_room_candidates_count",
-            page_id=str(page_id),
-            count=len(rooms),
-        )
+        # Count ambiguous rooms
+        ambiguous_count = sum(1 for r in rooms if r.ambiguity)
+        candidates_before_filter = len(rooms)
 
         # Filter out ambiguous rooms in conservative mode
         if policy == ExtractionPolicy.CONSERVATIVE:
             rooms = [r for r in rooms if not r.ambiguity]
 
+        # LOG 3: Mandatory log when SpatialRoomLabeler is called
         logger.info(
-            "phase3_3_rooms_emitted_count",
+            "phase3_3_spatial_room_labeler_called",
             page_id=str(page_id),
-            count=len(rooms),
+            phase3_3_spatial_room_labeler_called=True,
+            candidates=candidates_before_filter,
+            rooms_emitted=len(rooms),
+            ambiguous_count=ambiguous_count,
         )
 
         return rooms
