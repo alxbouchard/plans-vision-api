@@ -8,9 +8,39 @@ STABILITY REPORT:
 
 MINIMUM STABLE RATIO REQUIRED: {min_stable_ratio}%
 
+RULE KIND CONTRACT (STRICT, CLOSED LIST):
+You MUST set payload.kind to ONE of these exact values only:
+token_detector
+pairing
+exclude
+
+Any other payload.kind value is INVALID and MUST NOT be used.
+
+If a rule cannot be represented using ONLY these kinds:
+Set “payload”: null for that rule
+Do NOT invent a new kind
+Do NOT rename kinds
+Do NOT output approximate kinds
+
+Explicitly forbidden payload.kind examples:
+layout_zone_template
+fill_detector
+lineweight_classifier
+arc_opening_detector
+symbol_detector
+callout_detector
+composite_extraction
+markup_detector
+table_detector
+legend_row_pair_extractor
+and ANY other value not in the allowed list
+
+If you are unsure which kind applies:
+Set payload = null
+Do NOT guess
+
 You MUST respond with a valid JSON object following this exact structure:
 
-```json
 {{
   "guide_generated": true,
   "stable_rules": [
@@ -43,58 +73,69 @@ You MUST respond with a valid JSON object following this exact structure:
   "confidence_level": "high | medium | low",
   "rejection_reason": null
 }}
-```
 
-PAYLOAD REQUIREMENTS (Phase 3.3):
-Each stable_rule MUST include a "payload" object if the rule can be machine-executed.
-You MUST generate at least these 3 payload types when applicable:
+PHASE 3.3 REQUIRED PAYLOADS — MANDATORY EXTRACTION SPECIFICATION
 
-1. token_detector for room_name:
-   {{
-     "kind": "token_detector",
-     "token_type": "room_name",
-     "detector": "regex",
-     "pattern": "[A-Z]{{2,}}",
-     "min_len": 2
-   }}
+For Phase 3.3 extraction to work, you MUST include these 3 payloads in stable_rules when room labels are observed in the provisional guide or stability report.
 
-2. token_detector for room_number:
-   {{
-     "kind": "token_detector",
-     "token_type": "room_number",
-     "detector": "regex",
-     "pattern": "\\d{{2,4}}",
-     "must_be_boxed": false
-   }}
+RULE: These 3 payloads are REQUIRED (not optional) when room labels exist on analyzed pages:
 
-3. pairing (associates room_name with room_number):
-   {{
-     "kind": "pairing",
-     "name_token": "room_name",
-     "number_token": "room_number",
-     "relation": "below",
-     "max_distance_px": 100
-   }}
+1. token_detector for room_name (REQUIRED):
+{{
+"kind": "token_detector",
+"token_type": "room_name",
+"detector": "regex",
+"pattern": "[A-Z]{{2,}}",
+"min_len": 2
+}}
 
-Optional - exclude (to filter out global annotations):
-   {{
-     "kind": "exclude",
-     "pattern": "^(PLAN|PAGE|REV|DATE|SCALE).*",
-     "detector": "regex"
-   }}
+2. token_detector for room_number (REQUIRED):
+{{
+"kind": "token_detector",
+"token_type": "room_number",
+"detector": "regex",
+"pattern": "\\d{{2,4}}",
+"must_be_boxed": false
+}}
+
+3. pairing for room_name ↔ room_number (REQUIRED):
+{{
+"kind": "pairing",
+"name_token": "room_name",
+"number_token": "room_number",
+"relation": "below",
+"max_distance_px": 100
+}}
+
+CRITICAL PHASE 3.3 RULE:
+- If the provisional guide or stability report contains ANY observations about room names, room numbers, or room labels → you MUST include ALL 3 payloads above in stable_rules
+- These rules may have stability_score as low as 0.5 (medium confidence is acceptable for room label rules)
+- payload=null is FORBIDDEN for these 3 rule types when room label observations exist
+- Adapt the pattern and relation fields based on what was actually observed (do not use defaults blindly)
+- Document any uncertainty in the "limitations" array, but still include the payloads
+
+WHY: Without these 3 payloads, the SpatialRoomLabeler cannot emit any rooms, causing rooms_emitted=0.
+
+Optional exclude (to filter out global annotations):
+{{
+"kind": "exclude",
+"pattern": "^(PLAN|PAGE|REV|DATE|SCALE).*",
+"detector": "regex"
+}}
 
 CRITICAL RULES:
-1. If stable rules ratio < {min_stable_ratio}%, set guide_generated=false
-2. If guide_generated=false, stable_rules MUST be empty and rejection_reason MUST explain why
-3. ONLY include rules marked as STABLE in stable_rules
-4. NEVER include unstable or contradicted rules in stable_rules
-5. All excluded rules must have a clear reason
-6. Be explicit about limitations
-7. Each stable_rule SHOULD have a payload if the rule describes detectable patterns
+	1.	If stable rules ratio < {min_stable_ratio}%, set guide_generated=false
+	2.	If guide_generated=false, stable_rules MUST be empty and rejection_reason MUST explain why
+	3.	ONLY include rules marked as STABLE in stable_rules
+	4.	NEVER include unstable or contradicted rules in stable_rules
+	5.	All excluded rules must have a clear reason
+	6.	Be explicit about limitations
+	7.	Each stable_rule SHOULD have a payload only when representable with allowed kinds
+	8.	Never output payload with invalid kind. If you cannot express it, set payload=null
 
 REFUSAL CASE:
 If you cannot generate a guide, respond with:
-```json
+
 {{
   "guide_generated": false,
   "stable_rules": [],
@@ -104,6 +145,6 @@ If you cannot generate a guide, respond with:
   "confidence_level": "low",
   "rejection_reason": "Specific explanation of why guide cannot be generated and what is needed"
 }}
-```
 
 Respond ONLY with the JSON object, no other text.
+

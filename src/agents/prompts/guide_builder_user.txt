@@ -44,3 +44,57 @@ Categories to analyze:
 - LAYOUT: Information organization, headers, scale notation
 
 Respond ONLY with the JSON object, no other text.
+
+ROOM LABELS (Phase 3.3) — MANDATORY EXTRACTION SPECIFICATION
+
+Purpose: enable machine extraction of rooms. These observations are REQUIRED for Phase 3.3 extraction to work.
+
+Task:
+1. Actively search for room labels on the page (text inside enclosed spaces):
+   - room names: text labels inside rooms (typically uppercase words)
+   - room numbers: numeric tokens (2-4 digits), often near or below the name, sometimes boxed
+
+2. If room labels are visible, you MUST produce ALL of the following observations:
+
+   ROOM NAME observations (minimum 2):
+   - OBS: "room_name_pattern_1" — describe the text format (uppercase, mixed case, etc.)
+   - OBS: "room_name_pattern_2" — cite a second concrete example with exact text and location
+
+   ROOM NUMBER observations (minimum 2, CRITICAL for extraction):
+   - OBS: "room_number_pattern_1" — describe the numeric format (e.g. "3-digit numbers like 203, 204")
+   - OBS: "room_number_pattern_2" — specify if numbers are BOXED (inside a rectangle/frame) or UNBOXED
+   - Include at least 2 concrete examples of room numbers you see on the page
+
+   SPATIAL RELATIONSHIP observation (minimum 1):
+   - OBS: "room_label_spatial_relationship" — describe the dominant position of room_number relative to room_name
+   - Example: "room number appears BELOW the room name, centered, approximately 20-50 pixels apart"
+
+3. You MUST produce these 3 candidate rules (these are REQUIRED for extraction):
+
+   RULE: room_name_token_pattern (REQUIRED)
+   - id: use format "RULE_0XX_ROOM_NAME"
+   - description: "Room names are [describe pattern observed]"
+   - based_on: reference your room_name observations
+   - confidence: medium or high (NOT low — if you see room names, report them)
+
+   RULE: room_number_token_pattern (REQUIRED)
+   - id: use format "RULE_0XX_ROOM_NUMBER"
+   - description: "Room numbers are [2-4 digit numbers], [boxed/unboxed], placed [location relative to name]"
+   - based_on: reference your room_number observations
+   - confidence: medium or high (NOT low — if you see room numbers, report them)
+
+   RULE: room_name_number_pairing (REQUIRED)
+   - id: use format "RULE_0XX_ROOM_PAIRING"
+   - description: "Room number is positioned [below/above/right/left] the room name, within approximately [N] pixels"
+   - based_on: reference your spatial relationship observation
+   - confidence: medium or high
+
+4. If NO room labels are visible on the page:
+   - Add observation: "NO_ROOM_LABELS_FOUND" with clear explanation
+   - Do NOT invent room labels
+
+CRITICAL CONSTRAINTS:
+- Do NOT use hardcoded word lists (no CLASSE, CORRIDOR, BUREAU, etc.)
+- Use ONLY visual and textual patterns you observe on THIS page
+- Examples MUST come from what you see, not general knowledge
+- These 3 rules are REQUIRED for extraction — do not omit them if room labels exist

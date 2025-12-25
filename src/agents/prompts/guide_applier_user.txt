@@ -36,3 +36,12 @@ CRITICAL RULES:
 6. Evidence must cite specific locations on the page
 
 Respond ONLY with the JSON object, no other text.
+
+ROOM LABELS VALIDATION (Phase 3.3) — MANDATORY
+
+If this page visibly contains room labels (text inside rooms, such as room names and/or room numbers):
+- AND the provisional guide contains NO rules describing room_name, room_number, or room label pairing
+- THEN you MUST:
+  1. Add a new_observation describing the room label pattern you see
+  2. Include a suggested_rule for the missing room label convention
+  3. Set overall_consistency to "inconsistent" to signal the guide is incomplete for room extraction
