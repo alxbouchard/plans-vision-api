@@ -58,8 +58,8 @@ class GuideBuilderAgent:
                 image_bytes=image_bytes,
                 prompt=get_guide_builder_prompt(),
                 model=self.settings.model_guide_builder,
-                reasoning_effort="high",
-                verbosity="high",
+                reasoning_effort="low",
+                verbosity="low",
                 system_prompt=get_guide_builder_system(),
             )
 

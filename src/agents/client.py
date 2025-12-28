@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 from dataclasses import dataclass, field
 from typing import Optional
@@ -14,6 +15,9 @@ from src.config import get_settings
 from src.logging import get_logger
 
 logger = get_logger(__name__)
+
+# Timeout for OpenAI API calls (120 seconds)
+OPENAI_TIMEOUT_SECONDS = 120
 
 
 # GPT-5.2 pricing (per 1M tokens) - adjust based on actual pricing
@@ -76,7 +80,7 @@ class VisionClient:
         self.client = AsyncOpenAI(api_key=settings.openai_api_key)
 
     @retry(
-        stop=stop_after_attempt(3),
+        stop=stop_after_attempt(1),
         wait=wait_exponential(multiplier=1, min=2, max=30),
         reraise=True,
     )
@@ -142,19 +146,24 @@ class VisionClient:
         })
 
         logger.info(
-            "vision_request",
+            "vision_request_start",
             model=actual_model,
             reasoning_effort=reasoning_effort,
             verbosity=verbosity,
             image_size=len(image_bytes),
+            timeout_seconds=OPENAI_TIMEOUT_SECONDS,
         )
 
         try:
-            response = await self.client.responses.create(
-                model=actual_model,
-                input=input_content,
-                reasoning={"effort": reasoning_effort},
-                text={"verbosity": verbosity},
+            # Apply timeout to OpenAI call
+            response = await asyncio.wait_for(
+                self.client.responses.create(
+                    model=actual_model,
+                    input=input_content,
+                    reasoning={"effort": reasoning_effort},
+                    text={"verbosity": verbosity},
+                ),
+                timeout=OPENAI_TIMEOUT_SECONDS
             )
 
             # Extract text from response output
@@ -182,7 +191,7 @@ class VisionClient:
                 _current_usage.requests += 1
 
             logger.info(
-                "vision_response",
+                "vision_request_complete",
                 model=actual_model,
                 response_length=len(output_text),
                 input_tokens=input_tokens,
@@ -191,6 +200,18 @@ class VisionClient:
             )
 
             return output_text
+
+        except asyncio.TimeoutError:
+            logger.error(
+                "openai_timeout",
+                model=actual_model,
+                timeout_seconds=OPENAI_TIMEOUT_SECONDS,
+                step="vision_request",
+            )
+            raise VisionClientError(
+                f"OpenAI API timeout after {OPENAI_TIMEOUT_SECONDS}s",
+                error_code="OPENAI_TIMEOUT"
+            )
 
         except Exception as e:
             logger.error(
@@ -201,7 +222,7 @@ class VisionClient:
             raise VisionClientError(f"Vision API error: {e}")
 
     @retry(
-        stop=stop_after_attempt(3),
+        stop=stop_after_attempt(1),
         wait=wait_exponential(multiplier=1, min=2, max=30),
         reraise=True,
     )
@@ -246,18 +267,23 @@ class VisionClient:
         })
 
         logger.info(
-            "text_request",
+            "text_request_start",
             model=actual_model,
             reasoning_effort=reasoning_effort,
             verbosity=verbosity,
+            timeout_seconds=OPENAI_TIMEOUT_SECONDS,
         )
 
         try:
-            response = await self.client.responses.create(
-                model=actual_model,
-                input=input_content,
-                reasoning={"effort": reasoning_effort},
-                text={"verbosity": verbosity},
+            # Apply timeout to OpenAI call
+            response = await asyncio.wait_for(
+                self.client.responses.create(
+                    model=actual_model,
+                    input=input_content,
+                    reasoning={"effort": reasoning_effort},
+                    text={"verbosity": verbosity},
+                ),
+                timeout=OPENAI_TIMEOUT_SECONDS
             )
 
             # Extract text from response output
@@ -285,7 +311,7 @@ class VisionClient:
                 _current_usage.requests += 1
 
             logger.info(
-                "text_response",
+                "text_request_complete",
                 model=actual_model,
                 response_length=len(output_text),
                 input_tokens=input_tokens,
@@ -294,6 +320,18 @@ class VisionClient:
             )
 
             return output_text
+
+        except asyncio.TimeoutError:
+            logger.error(
+                "openai_timeout",
+                model=actual_model,
+                timeout_seconds=OPENAI_TIMEOUT_SECONDS,
+                step="text_request",
+            )
+            raise VisionClientError(
+                f"OpenAI API timeout after {OPENAI_TIMEOUT_SECONDS}s",
+                error_code="OPENAI_TIMEOUT"
+            )
 
         except Exception as e:
             logger.error(

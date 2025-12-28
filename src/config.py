@@ -33,9 +33,9 @@ class Settings(BaseSettings):
     # Logging
     log_level: str = Field(default="INFO", description="Logging level")
 
-    # Model configuration (from spec)
+    # Model configuration (gpt-5.2 for speed, gpt-5.2-pro reserved for optional "hard" mode)
     model_guide_builder: str = Field(
-        default="gpt-5.2-pro",
+        default="gpt-5.2",
         description="Model for Guide Builder agent"
     )
     model_guide_applier: str = Field(
@@ -43,7 +43,7 @@ class Settings(BaseSettings):
         description="Model for Guide Applier agent"
     )
     model_self_validator: str = Field(
-        default="gpt-5.2-pro",
+        default="gpt-5.2",
         description="Model for Self-Validator agent"
     )
     model_guide_consolidator: str = Field(

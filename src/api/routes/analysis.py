@@ -54,6 +54,15 @@ async def run_pipeline_background(
             error_code=e.error_code,
             error=str(e),
         )
+        # Store error in guide for retrieval via /status
+        try:
+            guide_repo = VisualGuideRepository(session)
+            guide = await guide_repo.get_or_create(project_id)
+            from src.models.entities import ConfidenceReport
+            error_report = ConfidenceReport(rejection_reason=f"{e.error_code}: {str(e)}")
+            await guide_repo.update_confidence_report(project_id, error_report)
+        except Exception:
+            pass  # Best effort
 
     except Exception as e:
         analytics.guide_build_failed(
@@ -66,6 +75,15 @@ async def run_pipeline_background(
             project_id=str(project_id),
             error=str(e),
         )
+        # Store error in guide for retrieval via /status
+        try:
+            guide_repo = VisualGuideRepository(session)
+            guide = await guide_repo.get_or_create(project_id)
+            from src.models.entities import ConfidenceReport
+            error_report = ConfidenceReport(rejection_reason=f"UNEXPECTED_ERROR: {str(e)}")
+            await guide_repo.update_confidence_report(project_id, error_report)
+        except Exception:
+            pass  # Best effort
 
 
 @router.post(
