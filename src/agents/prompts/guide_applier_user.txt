@@ -3,11 +3,60 @@ Test this provisional visual guide against page {page_number}.
 PROVISIONAL GUIDE:
 {provisional_guide}
 
+═══════════════════════════════════════════════════════════════════════════════
+PAYLOAD VALIDATIONS — MANDATORY (Phase 3.4)
+═══════════════════════════════════════════════════════════════════════════════
+
+You MUST validate the 3 room label payloads explicitly. Look for these in the guide:
+1. token_detector with token_type="room_name"
+2. token_detector with token_type="room_number"
+3. pairing (links room_name to room_number)
+
+For EACH payload, produce a validation entry in payload_validations:
+
+```json
+"payload_validations": [
+  {{
+    "kind": "token_detector",
+    "token_type": "room_name",
+    "status": "confirmed | contradicted | not_applicable",
+    "evidence": "Specific evidence from this page"
+  }},
+  {{
+    "kind": "token_detector",
+    "token_type": "room_number",
+    "status": "confirmed | contradicted | not_applicable",
+    "evidence": "Specific evidence from this page"
+  }},
+  {{
+    "kind": "pairing",
+    "token_type": null,
+    "status": "confirmed | contradicted | not_applicable",
+    "evidence": "Specific evidence from this page"
+  }}
+]
+```
+
+Status meanings:
+- "confirmed": The pattern described in the guide payload MATCHES what you see on this page
+- "contradicted": The pattern described in the guide payload CONFLICTS with what you see
+- "not_applicable": This page has no room labels to test against
+
+CRITICAL RULE:
+If this page has visible room labels BUT the guide is MISSING any of the 3 required payloads:
+- You MUST set overall_consistency to "inconsistent"
+- You MUST add a new_observation describing the missing payload
+- You MUST still produce payload_validations entries (use "not_applicable" for missing payloads)
+
+═══════════════════════════════════════════════════════════════════════════════
+OUTPUT FORMAT — STRICT JSON
+═══════════════════════════════════════════════════════════════════════════════
+
 You MUST respond with a valid JSON object following this exact structure:
 
 ```json
 {{
-  "page_number": 2,
+  "page_number": {page_number},
   "rule_validations": [
     {{
       "rule_id": "RULE_001",
@@ -23,25 +72,25 @@ You MUST respond with a valid JSON object following this exact structure:
       "suggested_rule": "Optional suggested rule"
     }}
   ],
+  "payload_validations": [
+    {{
+      "kind": "token_detector",
+      "token_type": "room_name",
+      "status": "confirmed | contradicted | not_applicable",
+      "evidence": "Evidence from this page"
+    }}
+  ],
   "overall_consistency": "consistent | mostly_consistent | inconsistent"
 }}
 ```
 
-CRITICAL RULES:
-1. Every rule in the guide MUST have a validation entry
-2. Status MUST be exactly one of: confirmed, contradicted, not_testable, variation
-3. "contradicted" means the rule is VIOLATED - not just absent
-4. "not_testable" means the relevant elements don't appear on this page
-5. "variation" means similar but not identical pattern observed
-6. Evidence must cite specific locations on the page
+VALIDATION RULES:
+1. Every rule in the guide MUST have a validation entry in rule_validations
+2. The 3 room label payloads MUST have entries in payload_validations (NEVER empty if page has rooms)
+3. Status MUST be exactly one of the allowed values
+4. "contradicted" means the rule is VIOLATED — not just absent
+5. "not_testable" means the relevant elements don't appear on this page
+6. "variation" means similar but not identical pattern observed
+7. Evidence must cite specific locations on the page
 
 Respond ONLY with the JSON object, no other text.
-
-ROOM LABELS VALIDATION (Phase 3.3) — MANDATORY
-
-If this page visibly contains room labels (text inside rooms, such as room names and/or room numbers):
-- AND the provisional guide contains NO rules describing room_name, room_number, or room label pairing
-- THEN you MUST:
-  1. Add a new_observation describing the room label pattern you see
-  2. Include a suggested_rule for the missing room label convention
-  3. Set overall_consistency to "inconsistent" to signal the guide is incomplete for room extraction

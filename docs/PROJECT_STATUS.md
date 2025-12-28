@@ -3,7 +3,8 @@
 ## Current Phase
 **API v3 Ready** — Phase 1, Phase 1.5, Phase 2, and Phase 3 Complete
 **Phase 3.2 — Provisional Mode available (runtime mode)**
-**Phase 3.3 — Spatial Room Labeling: All tickets complete, feature flag off by default**
+**Phase 3.3 — Spatial Room Labeling: VALIDATED & FROZEN**
+**Phase 3.4 — Single Page Room Extraction: IN PROGRESS**
 
 ## Release Summary
 
@@ -14,6 +15,8 @@
 | v2.0.0 | Phase 2 — Extraction and Query | COMPLETE |
 | v3.0.0 | Phase 3 — Render | COMPLETE |
 | v3.2.0 | Phase 3.2 — Provisional Mode | ACTIVE (runtime mode) |
+| v3.3.0 | Phase 3.3 — Spatial Room Labeling | FROZEN |
+| v3.4.0 | Phase 3.4 — Single Page Extraction | IN PROGRESS |
 
 ### Test Gate
 
@@ -151,6 +154,52 @@ This mode ensures the API:
 - extracts verifiable elements
 - remains honest about uncertainty
 - does NOT over-claim understanding
+
+---
+
+## Phase 3.3 — Spatial Room Labeling (FROZEN)
+
+### Status: VALIDATED & FROZEN
+
+Phase 3.3 is complete and frozen per Decision 6/7/8 in `docs/DECISIONS_Phase3_3.md`.
+
+### What is DONE
+- SpatialRoomLabeler driven by Visual Guide payloads
+- 3 mandatory payloads: token_detector(room_name), token_detector(room_number), pairing
+- Test gates A/B/C passing
+- Feature flag `ENABLE_PHASE3_3_SPATIAL_LABELING`
+
+### Frozen Components (DO NOT MODIFY)
+- `src/extraction/spatial_room_labeler.py`
+- `tests/test_phase3_3_gates.py`
+- Phase 3.3 payload schema
+
+---
+
+## Phase 3.4 — Single Page Room Extraction (IN PROGRESS)
+
+### Goal
+Make the API capable of extracting rooms from a SINGLE page reliably, without requiring multi-page validation.
+
+### What is DONE
+- [x] Ticket 1: GuideBuilder prompt updated for single-page observations
+- [x] Ticket 2: GuideApplier payload_validations schema added
+- [x] Ticket 3: GuideConsolidator single-page rules
+- [x] Ticket 4: Test gates A/B/C created (24 tests passing)
+- [x] Ticket 5: DPI robustness tests
+
+### Test Gates (Phase 3.4)
+| Gate | Description | Test |
+|------|-------------|------|
+| GATE A | Single page → 3 payloads | `TestGateA_SinglePageGuidePayloads` |
+| GATE B | payload_validations present | `TestGateB_PayloadValidations` |
+| GATE C | rooms_emitted > 0 on single page | `TestGateC_SinglePageExtraction` |
+| DPI | Works at 150 and 300 DPI | `TestDPIRobustness` |
+
+### Key Decisions
+- Stability score >= 0.5 acceptable for room payloads (not 0.8)
+- Multi-page increases confidence but is NOT required
+- See `docs/DECISIONS_Phase3_4.md`
 
 ---
 

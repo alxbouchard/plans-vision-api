@@ -78,6 +78,29 @@ class NewObservation(BaseModel):
     suggested_rule: Optional[str] = Field(default=None, description="Suggested rule if applicable")
 
 
+class PayloadValidationStatus(str, Enum):
+    """Status for payload validation (Phase 3.4)."""
+    CONFIRMED = "confirmed"
+    CONTRADICTED = "contradicted"
+    NOT_APPLICABLE = "not_applicable"
+
+
+class PayloadValidation(BaseModel):
+    """Validation result for a machine-executable payload (Phase 3.4).
+
+    This validates that the guide's payloads match what is visible on the page.
+    """
+    kind: str = Field(description="Payload kind: token_detector, pairing")
+    token_type: Optional[str] = Field(
+        default=None,
+        description="For token_detector: room_name, room_number"
+    )
+    status: PayloadValidationStatus = Field(
+        description="confirmed = pattern matches, contradicted = pattern fails, not_applicable = no evidence on page"
+    )
+    evidence: str = Field(description="Specific evidence supporting this status")
+
+
 class GuideApplierOutput(BaseModel):
     """Structured output from the Guide Applier agent."""
     page_number: int = Field(description="Page number being validated")
@@ -85,6 +108,11 @@ class GuideApplierOutput(BaseModel):
     new_observations: list[NewObservation] = Field(
         default_factory=list,
         description="New patterns not in the guide"
+    )
+    # Phase 3.4: Explicit payload validations
+    payload_validations: list[PayloadValidation] = Field(
+        default_factory=list,
+        description="Phase 3.4: Validation for machine-executable payloads (room_name, room_number, pairing)"
     )
     overall_consistency: str = Field(description="Overall assessment: consistent, mostly_consistent, inconsistent")
 

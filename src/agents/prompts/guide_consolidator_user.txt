@@ -74,11 +74,14 @@ You MUST respond with a valid JSON object following this exact structure:
   "rejection_reason": null
 }}
 
-PHASE 3.3 REQUIRED PAYLOADS — MANDATORY EXTRACTION SPECIFICATION
+═══════════════════════════════════════════════════════════════════════════════
+PHASE 3.4 — SINGLE PAGE ROOM EXTRACTION (MANDATORY)
+═══════════════════════════════════════════════════════════════════════════════
 
-For Phase 3.3 extraction to work, you MUST include these 3 payloads in stable_rules when room labels are observed in the provisional guide or stability report.
+CRITICAL: A single page with visible room labels MUST produce a usable guide.
+Multi-page validation increases confidence but is NOT required.
 
-RULE: These 3 payloads are REQUIRED (not optional) when room labels exist on analyzed pages:
+RULE: If the provisional guide contains observations about room names, room numbers, or spatial relationships between them, you MUST include ALL 3 payloads below in stable_rules:
 
 1. token_detector for room_name (REQUIRED):
 {{
@@ -107,14 +110,26 @@ RULE: These 3 payloads are REQUIRED (not optional) when room labels exist on ana
 "max_distance_px": 100
 }}
 
-CRITICAL PHASE 3.3 RULE:
-- If the provisional guide or stability report contains ANY observations about room names, room numbers, or room labels → you MUST include ALL 3 payloads above in stable_rules
-- These rules may have stability_score as low as 0.5 (medium confidence is acceptable for room label rules)
-- payload=null is FORBIDDEN for these 3 rule types when room label observations exist
-- Adapt the pattern and relation fields based on what was actually observed (do not use defaults blindly)
-- Document any uncertainty in the "limitations" array, but still include the payloads
+SINGLE PAGE RULES (Phase 3.4):
+- For room label payloads, stability_score >= 0.5 is ACCEPTABLE
+- Do NOT exclude room_number or pairing just because stability_score < 0.8
+- The 0.8 threshold applies to other rules, NOT to these 3 mandatory payloads
+- If pages_testable = 1, this is valid — single page is sufficient
+- Adapt pattern and relation based on actual observations (do not blindly copy defaults)
 
-WHY: Without these 3 payloads, the SpatialRoomLabeler cannot emit any rooms, causing rooms_emitted=0.
+FORBIDDEN BEHAVIORS:
+- payload=null for room label rules when observations exist
+- Excluding room_number because "only observed on one page"
+- Excluding pairing because "insufficient cross-page validation"
+- Setting guide_generated=false when room labels are visible and 3 payloads can be derived
+
+MISSING PAYLOADS = FAILURE:
+If room labels are visible but you cannot derive all 3 payloads:
+- Set guide_generated=false
+- Set rejection_reason to explain WHICH payload is missing and WHY
+- Log this as a failure, not a partial success
+
+WHY: Without these 3 payloads, rooms_emitted=0 and Phase 3.4 extraction fails.
 
 Optional exclude (to filter out global annotations):
 {{
