@@ -95,12 +95,23 @@ class PipelineOrchestrator:
 
         Returns:
             TokenSummary if PDF available and has tokens, None otherwise.
+            Falls back gracefully if PDF missing or unreadable.
         """
         if pdf_path is None:
-            logger.debug(
+            logger.info(
                 "token_summary_skip",
                 page_id=str(page_id),
                 reason="no_pdf_path",
+            )
+            return None
+
+        # Check if PDF file actually exists
+        if not pdf_path.exists():
+            logger.warning(
+                "token_summary_skip",
+                page_id=str(page_id),
+                reason="pdf_missing",
+                pdf_path=str(pdf_path),
             )
             return None
 
@@ -115,18 +126,21 @@ class PipelineOrchestrator:
 
             if not tokens:
                 logger.info(
-                    "token_summary_skip",
+                    "token_summary_fallback",
                     page_id=str(page_id),
-                    reason="no_tokens_from_pdf",
+                    source="vision",
+                    reason="no_tokens_in_pdf",
+                    pdf_path=str(pdf_path),
                 )
                 return None
 
             summary = generate_token_summary(tokens)
 
             logger.info(
-                "token_summary_generated",
+                "token_summary_used",
                 page_id=str(page_id),
-                total_tokens=summary.total_text_blocks,
+                source="pymupdf",
+                tokens_count=summary.total_text_blocks,
                 room_names=len(summary.room_name_candidates),
                 room_numbers=len(summary.room_number_candidates),
                 high_freq_codes=len(summary.high_frequency_numbers),
@@ -136,8 +150,10 @@ class PipelineOrchestrator:
 
         except Exception as e:
             logger.warning(
-                "token_summary_error",
+                "token_source_used",
                 page_id=str(page_id),
+                source="vision",
+                reason="pdf_extraction_error",
                 error=str(e),
             )
             return None
@@ -213,11 +229,18 @@ class PipelineOrchestrator:
             page_1_bytes = await self.file_storage.read_image_bytes(page_1.file_path)
 
             # Extract token summary from PDF (if available)
-            # For now, pdf_path must be provided explicitly via run() parameter
+            # Priority: explicit pdf_path param > page.source_pdf_path
+            effective_pdf_path = pdf_path
+            effective_page_index = 0
+
+            if effective_pdf_path is None and page_1.source_pdf_path:
+                effective_pdf_path = Path(page_1.source_pdf_path)
+                effective_page_index = page_1.source_pdf_page_index or 0
+
             token_summary = await self._get_token_summary(
                 page_id=page_1.id,
-                pdf_path=pdf_path,
-                page_number=0,  # First page
+                pdf_path=effective_pdf_path,
+                page_number=effective_page_index,
             )
 
             builder_result = await self.guide_builder.build_guide(
@@ -422,11 +445,18 @@ class PipelineOrchestrator:
             page_bytes = await self.file_storage.read_image_bytes(page.file_path)
 
             # Extract token summary from PDF (if available)
-            # For now, pdf_path must be provided explicitly via run() parameter
+            # Priority: explicit pdf_path param > page.source_pdf_path
+            effective_pdf_path = pdf_path
+            effective_page_index = 0
+
+            if effective_pdf_path is None and page.source_pdf_path:
+                effective_pdf_path = Path(page.source_pdf_path)
+                effective_page_index = page.source_pdf_page_index or 0
+
             token_summary = await self._get_token_summary(
                 page_id=page.id,
-                pdf_path=pdf_path,
-                page_number=0,  # Single page = first page
+                pdf_path=effective_pdf_path,
+                page_number=effective_page_index,
             )
 
             builder_result = await self.guide_builder.build_guide(
