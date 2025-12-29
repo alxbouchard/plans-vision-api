@@ -2,6 +2,8 @@ Analyze this construction plan page to discover the visual conventions used in t
 
 IMPORTANT: This analysis may be the ONLY page available. You must extract complete, actionable rules from this single page. Do not defer observations expecting "more pages later".
 
+{token_summary_section}
+
 ═══════════════════════════════════════════════════════════════════════════════
 ROOM LABELS — MANDATORY EXTRACTION (Phase 3.4)
 ═══════════════════════════════════════════════════════════════════════════════
@@ -49,21 +51,28 @@ STEP 4 — If NO room labels are visible:
 - Add observation with id containing "NO_ROOM_LABELS" and explain why
 - Do NOT invent room labels
 
-STEP 5 — EXCLUDE ANNOTATIONS (Phase 3.7):
-Look for UPPERCASE words that are NOT room names but are functional annotations.
-These appear as standalone text labels that reference other drawings or provide instructions.
+STEP 5 — EXCLUDE PATTERNS (Phase 3.7):
+Look for patterns that are NOT room labels but could be mistaken for them.
 
-Common patterns to OBSERVE (do not assume - only report if you SEE them):
-- Reference annotations: words like "SEE", "REFER", "NOTE", "TYP", "SIM"
+A) HIGH-FREQUENCY CODES (from token data):
+If token summary shows high-frequency numbers (e.g., "05" appearing 47+ times),
+these are likely wall codes, partition identifiers, or grid references.
+- OBS_0XX: "High-frequency code '05' appears 47 times, likely wall/partition code"
+- RULE_0XX_EXCLUDE: "Exclude 2-digit codes matching pattern ^0[0-9]$"
+
+B) FUNCTIONAL ANNOTATIONS:
+UPPERCASE words that are NOT room names but reference other drawings/instructions.
+Common patterns to OBSERVE (only report if you SEE them):
+- Reference annotations: "SEE", "REFER", "NOTE", "TYP", "SIM"
 - Directional annotations: "ABOVE", "BELOW", "BEYOND"
 - Equipment codes that look like room names but are not rooms
 
 If you observe such annotations, add:
 - OBS_0XX: "Functional annotations observed: [list exact words seen]"
-- RULE_0XX_EXCLUDE: "Exclude uppercase words matching pattern [regex based on observations]"
+- RULE_0XX_EXCLUDE: "Exclude uppercase words matching pattern [regex]"
 
-The exclude rule helps filter false positives from room extraction.
-Only add this rule if you clearly observe recurring annotation patterns.
+The exclude rules help filter false positives from room extraction.
+Only add exclude rules when you observe clear patterns (high frequency or recurring).
 
 CONSTRAINTS (non-negotiable):
 - Do NOT use hardcoded word lists (no CLASSE, CORRIDOR, BUREAU in rules)
