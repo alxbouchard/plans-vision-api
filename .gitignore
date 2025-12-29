@@ -53,4 +53,5 @@ htmlcov/
 
 # Test fixtures (large files)
 tests/fixtures/**/*.png
+tests/fixtures/**/*.pdf
 tests/fixtures/Test2/
