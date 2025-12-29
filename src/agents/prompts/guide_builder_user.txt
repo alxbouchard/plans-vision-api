@@ -49,11 +49,28 @@ STEP 4 — If NO room labels are visible:
 - Add observation with id containing "NO_ROOM_LABELS" and explain why
 - Do NOT invent room labels
 
+STEP 5 — EXCLUDE ANNOTATIONS (Phase 3.7):
+Look for UPPERCASE words that are NOT room names but are functional annotations.
+These appear as standalone text labels that reference other drawings or provide instructions.
+
+Common patterns to OBSERVE (do not assume - only report if you SEE them):
+- Reference annotations: words like "SEE", "REFER", "NOTE", "TYP", "SIM"
+- Directional annotations: "ABOVE", "BELOW", "BEYOND"
+- Equipment codes that look like room names but are not rooms
+
+If you observe such annotations, add:
+- OBS_0XX: "Functional annotations observed: [list exact words seen]"
+- RULE_0XX_EXCLUDE: "Exclude uppercase words matching pattern [regex based on observations]"
+
+The exclude rule helps filter false positives from room extraction.
+Only add this rule if you clearly observe recurring annotation patterns.
+
 CONSTRAINTS (non-negotiable):
 - Do NOT use hardcoded word lists (no CLASSE, CORRIDOR, BUREAU in rules)
 - Use ONLY patterns you observe on THIS page
 - Examples MUST be real text you see, not assumed
-- All 3 rules are REQUIRED if room labels exist — omission causes extraction failure
+- All 3 room rules are REQUIRED if room labels exist — omission causes extraction failure
+- Exclude rules are OPTIONAL — only add if you observe annotation patterns
 
 ═══════════════════════════════════════════════════════════════════════════════
 GENERAL CATEGORIES TO ANALYZE

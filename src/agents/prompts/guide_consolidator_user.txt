@@ -131,12 +131,20 @@ If room labels are visible but you cannot derive all 3 payloads:
 
 WHY: Without these 3 payloads, rooms_emitted=0 and Phase 3.4 extraction fails.
 
-Optional exclude (to filter out global annotations):
+4. OPTIONAL exclude payload (to filter out functional annotations):
+If the provisional guide contains observations about functional annotations
+(words like SEE, REFER, ABOVE, BELOW, TYP, NOTE that are NOT room names),
+include an exclude payload:
+
 {{
 "kind": "exclude",
-"pattern": "^(PLAN|PAGE|REV|DATE|SCALE).*",
-"detector": "regex"
+"token_type": "room_name",
+"detector": "regex",
+"pattern": "^(SEE|REFER|ABOVE|BELOW|TYP|NOTE|SIM)$"
 }}
+
+IMPORTANT: The pattern MUST be derived from OBSERVED annotations, not assumed.
+Only include exclude if the provisional guide explicitly mentions these annotations.
 
 CRITICAL RULES:
 	1.	If stable rules ratio < {min_stable_ratio}%, set guide_generated=false

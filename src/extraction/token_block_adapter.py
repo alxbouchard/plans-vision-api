@@ -200,14 +200,16 @@ class TokenBlockAdapter:
     def _matches_exclude_rule(self, text: str) -> Optional[str]:
         """Check if text matches any exclude rule.
 
-        Returns the exclude reason if matched, None otherwise.
+        Returns the matched pattern if excluded, None otherwise.
+        The pattern itself serves as the exclusion identifier in logs.
         """
         for rule in self.exclude_rules:
             if rule.pattern:
                 try:
                     pattern = re.compile(rule.pattern, re.IGNORECASE)
                     if pattern.fullmatch(text.strip()):
-                        return rule.reason or "excluded_by_pattern"
+                        # Use pattern as identifier (no 'reason' field in schema)
+                        return f"pattern:{rule.pattern}"
                 except re.error:
                     pass
         return None
