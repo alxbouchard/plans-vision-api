@@ -187,6 +187,26 @@ Make the API capable of extracting rooms from a SINGLE page reliably, without re
 - [x] Ticket 3: GuideConsolidator single-page rules
 - [x] Ticket 4: Test gates A/B/C created (24 tests passing)
 - [x] Ticket 5: DPI robustness tests
+- [x] Phase 0: TokenProvider unified interface (PyMuPDF + Vision + OCR)
+- [x] Phase 0: PyMuPDFTokenProvider extracts text from PDF vector layer
+- [x] Phase 0: TokenBlockAdapter pairs room_name + room_number by proximity
+- [x] Gate validated: addenda_page_1 rooms_emitted = 296 (via PDF direct)
+- [x] Gate validated: test2_page6 rooms_emitted = 510 (via PDF direct)
+
+### Phase 3.5 — Tokens-First Extraction (VALIDATED)
+
+**Status: VALIDATED** - Le moteur d'extraction tokens-first fonctionne.
+
+Le problème restant est 100% sémantique (faux positifs) et relève du Visual Guide, pas du code.
+
+| Fixture | Tokens | Rooms Baseline | Observation |
+|---------|--------|----------------|-------------|
+| addenda_page_1 | 2779 | 296 | Faux positifs: ABOVE, BELOW, mots fonctionnels |
+| test2_page6 | 1170 | 510 | Codes équipements confondus avec rooms |
+
+### Next: Phase 3.7 — Semantic Refinement
+
+See `docs/WORK_QUEUE_PHASE3_7_SEMANTIC.md`
 
 ### Test Gates (Phase 3.4)
 | Gate | Description | Test |
