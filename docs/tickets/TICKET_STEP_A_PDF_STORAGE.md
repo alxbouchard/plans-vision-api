@@ -1,6 +1,6 @@
 # TICKET: Step A — PDF Storage Association
 
-**Status: PR1 DONE, PR2 PENDING**
+**Status: PR1 DONE, PR2 DONE ✓**
 **Created: 2025-12-29**
 **Updated: 2025-12-29**
 **Depends on: Steps B/C/D/E (COMPLETE)**
@@ -207,10 +207,10 @@ If Step A risks breaking existing functionality, split into two PRs:
 
 - [x] A1: Ticket created (this file)
 - [x] A2: Migration script + schema change (PR1)
-- [ ] A3: PDF upload endpoint (PR2)
+- [x] A3: PDF upload endpoint (PR2) ✓
 - [x] A4: Non-regression test passing (PR1)
-- [ ] A5: Tokens-first test passing (PR2)
-- [x] All existing tests still passing (280 pass, 4 skip)
+- [x] A5: Tokens-first test passing (PR2) ✓
+- [x] All existing tests still passing (285 pass, 4 skip)
 
 ## Migration Notes
 
@@ -225,7 +225,20 @@ If Step A risks breaking existing functionality, split into two PRs:
 
 ## Success Criteria
 
-1. `POST /projects/{id}/pages` (PNG) works exactly as before
-2. `POST /projects/{id}/pdf` creates pages with PDF association
-3. `/analyze` uses tokens-first when pdf_path is set
-4. Addenda page 1 produces stable_rules_json with 3+ payloads
+1. `POST /projects/{id}/pages` (PNG) works exactly as before ✓
+2. `POST /projects/{id}/pdf` creates pages with PDF association ✓
+3. `/analyze` uses tokens-first when pdf_path is set ✓
+4. Addenda page 1 produces stable_rules_json with 3+ payloads ✓
+
+## Test Results (2025-12-29)
+
+**Real test with Addenda PDF:**
+- `project_id`: `8cc9a22a-854f-4bfc-906e-ed44bf54007f`
+- `status`: `validated`
+- `pages_created`: 3
+- `stable_rules`: 6 rules (scores 0.88–0.97)
+- `payloads`: 5 actionable (2 token_detector, 1 pairing, 2 exclude)
+
+**PRs:**
+- PR1: https://github.com/alxbouchard/plans-vision-api/pull/1
+- PR2: https://github.com/alxbouchard/plans-vision-api/pull/2
