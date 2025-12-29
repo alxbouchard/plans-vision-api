@@ -45,3 +45,12 @@ htmlcov/
 
 # Logs
 *.log
+
+# OS artifacts
+.DS_Store
+*/.DS_Store
+**/.DS_Store
+
+# Test fixtures (large files)
+tests/fixtures/**/*.png
+tests/fixtures/Test2/

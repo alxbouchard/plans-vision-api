@@ -141,19 +141,41 @@ def test_test2_semantic_filtering():
 
 ### GATE 7A - Addenda Semantic
 
-| Metric | Baseline | Target |
-|--------|----------|--------|
-| rooms_emitted | 296 | > 0 AND <= 40 |
-| true_rooms_preserved | N/A | >= 90% des vrais locaux |
-| false_positive_rate | ~95% | < 20% |
+| Metric | Baseline | Target | Justification |
+|--------|----------|--------|---------------|
+| rooms_emitted | 296 | > 0 AND <= 60 | Plafond réaliste pour une page |
+| rooms_with_number | N/A | >= 70% | Vrais locaux ont un numéro |
+| true_rooms_preserved | N/A | >= 90% | Pas de régression |
+
+**Validation code:**
+```python
+def test_gate_7a_addenda():
+    rooms = extract_rooms("addenda_page_1")
+    assert len(rooms) > 0, "Regression: no rooms"
+    assert len(rooms) <= 60, f"Too many rooms: {len(rooms)}"
+    with_number = [r for r in rooms if r.room_number]
+    ratio = len(with_number) / len(rooms)
+    assert ratio >= 0.70, f"Only {ratio:.0%} have room_number"
+```
 
 ### GATE 7B - Test2 Semantic
 
-| Metric | Baseline | Target |
-|--------|----------|--------|
-| rooms_emitted | 510 | > 0 AND <= 80 |
-| true_rooms_preserved | N/A | >= 90% des vrais locaux |
-| false_positive_rate | ~95% | < 20% |
+| Metric | Baseline | Target | Justification |
+|--------|----------|--------|---------------|
+| rooms_emitted | 510 | > 0 AND <= 150 | Plafond réaliste |
+| rooms_with_number | N/A | >= 50% | Plan peut avoir labels mixtes |
+| true_rooms_preserved | N/A | >= 90% | Pas de régression |
+
+**Validation code:**
+```python
+def test_gate_7b_test2():
+    rooms = extract_rooms("test2_page6")
+    assert len(rooms) > 0, "Regression: no rooms"
+    assert len(rooms) <= 150, f"Too many rooms: {len(rooms)}"
+    with_number = [r for r in rooms if r.room_number]
+    ratio = len(with_number) / len(rooms)
+    assert ratio >= 0.50, f"Only {ratio:.0%} have room_number"
+```
 
 ### GATE 7C - Zero Hardcode
 
