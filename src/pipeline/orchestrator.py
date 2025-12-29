@@ -1,6 +1,7 @@
 """Pipeline orchestrator for the multi-agent analysis flow."""
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional
 from uuid import UUID
 
@@ -20,6 +21,8 @@ from src.agents import (
     SelfValidatorAgent,
     GuideConsolidatorAgent,
 )
+from src.extraction.tokens import get_tokens_for_page, PageRasterSpec
+from src.extraction.token_summary import generate_token_summary, TokenSummary
 
 logger = get_logger(__name__)
 
@@ -75,13 +78,83 @@ class PipelineOrchestrator:
         self.self_validator = SelfValidatorAgent()
         self.guide_consolidator = GuideConsolidatorAgent()
 
-    async def run(self, project_id: UUID, owner_id: UUID) -> PipelineResult:
+    async def _get_token_summary(
+        self,
+        page_id: UUID,
+        pdf_path: Optional[Path] = None,
+        page_number: Optional[int] = None,
+        raster_spec: Optional[PageRasterSpec] = None,
+    ) -> Optional[TokenSummary]:
+        """Extract tokens from PDF and generate summary for GuideBuilder.
+
+        Args:
+            page_id: Page identifier for logging
+            pdf_path: Path to PDF file (if available)
+            page_number: Page number in PDF (0-indexed)
+            raster_spec: Target pixel space (for coordinate conversion)
+
+        Returns:
+            TokenSummary if PDF available and has tokens, None otherwise.
+        """
+        if pdf_path is None:
+            logger.debug(
+                "token_summary_skip",
+                page_id=str(page_id),
+                reason="no_pdf_path",
+            )
+            return None
+
+        try:
+            tokens = await get_tokens_for_page(
+                page_id=page_id,
+                pdf_path=pdf_path,
+                page_number=page_number,
+                raster_spec=raster_spec,
+                use_vision=False,  # PyMuPDF only for token summary
+            )
+
+            if not tokens:
+                logger.info(
+                    "token_summary_skip",
+                    page_id=str(page_id),
+                    reason="no_tokens_from_pdf",
+                )
+                return None
+
+            summary = generate_token_summary(tokens)
+
+            logger.info(
+                "token_summary_generated",
+                page_id=str(page_id),
+                total_tokens=summary.total_text_blocks,
+                room_names=len(summary.room_name_candidates),
+                room_numbers=len(summary.room_number_candidates),
+                high_freq_codes=len(summary.high_frequency_numbers),
+            )
+
+            return summary
+
+        except Exception as e:
+            logger.warning(
+                "token_summary_error",
+                page_id=str(page_id),
+                error=str(e),
+            )
+            return None
+
+    async def run(
+        self,
+        project_id: UUID,
+        owner_id: UUID,
+        pdf_path: Optional[Path] = None,
+    ) -> PipelineResult:
         """
         Run the full pipeline for a project.
 
         Args:
             project_id: The project to process
             owner_id: Owner ID for tenant validation
+            pdf_path: Optional path to source PDF for token extraction
 
         Returns:
             PipelineResult with outcome
@@ -118,9 +191,9 @@ class PipelineOrchestrator:
                     error_code="NO_PAGES"
                 )
 
-            # Single page projects: Option B - provisional only
+            # Single page projects: Full 4-agent pipeline (Phase 3.4)
             if len(pages) == 1:
-                return await self._run_single_page_flow(project_id, pages[0])
+                return await self._run_single_page_flow(project_id, pages[0], pdf_path=pdf_path)
 
             # Update status to processing
             await self.projects.update_status(project_id, ProjectStatus.PROCESSING)
@@ -139,9 +212,18 @@ class PipelineOrchestrator:
             page_1 = pages[0]
             page_1_bytes = await self.file_storage.read_image_bytes(page_1.file_path)
 
+            # Extract token summary from PDF (if available)
+            # For now, pdf_path must be provided explicitly via run() parameter
+            token_summary = await self._get_token_summary(
+                page_id=page_1.id,
+                pdf_path=pdf_path,
+                page_number=0,  # First page
+            )
+
             builder_result = await self.guide_builder.build_guide(
                 image_bytes=page_1_bytes,
                 project_id=project_id_str,
+                token_summary=token_summary,
             )
 
             if not builder_result.success:
@@ -309,12 +391,17 @@ class PipelineOrchestrator:
         self,
         project_id: UUID,
         page,
+        pdf_path: Optional[Path] = None,
     ) -> PipelineResult:
         """
-        Run Option B: Single-page provisional-only flow.
+        Run single-page flow with full agent pipeline.
 
-        With only one page, we cannot validate rules across multiple pages.
-        We generate a provisional guide only, clearly marked as unvalidated.
+        Phase 3.4: Single page with visible room labels MUST produce stable_rules_json.
+        We run all 4 agents: Builder -> Applier (self-apply) -> Validator -> Consolidator.
+
+        Decision logic:
+        - If consolidator returns guide_generated=true -> VALIDATED + stable_rules_json
+        - If consolidator returns guide_generated=false (e.g., cover sheet) -> PROVISIONAL_ONLY
         """
         project_id_str = str(project_id)
 
@@ -322,6 +409,7 @@ class PipelineOrchestrator:
             "pipeline_single_page_start",
             project_id=project_id_str,
             step="single_page_flow",
+            has_pdf=pdf_path is not None,
         )
 
         try:
@@ -330,12 +418,21 @@ class PipelineOrchestrator:
             # Initialize guide storage
             guide = await self.guides.get_or_create(project_id)
 
-            # Build provisional guide from the single page
+            # Step 1: Build provisional guide from the single page
             page_bytes = await self.file_storage.read_image_bytes(page.file_path)
+
+            # Extract token summary from PDF (if available)
+            # For now, pdf_path must be provided explicitly via run() parameter
+            token_summary = await self._get_token_summary(
+                page_id=page.id,
+                pdf_path=pdf_path,
+                page_number=0,  # Single page = first page
+            )
 
             builder_result = await self.guide_builder.build_guide(
                 image_bytes=page_bytes,
                 project_id=project_id_str,
+                token_summary=token_summary,
             )
 
             if not builder_result.success:
@@ -348,33 +445,154 @@ class PipelineOrchestrator:
             provisional_guide = builder_result.provisional_guide
             await self.guides.update_provisional(project_id, provisional_guide)
 
-            # For single-page: stable = null, explicit rejection reason
-            rejection_message = (
-                "Cannot generate stable guide: Only 1 page provided. "
-                "Validation requires at least 2 pages to test rule consistency. "
-                "The provisional guide above contains candidate rules observed on page 1 "
-                "but they have NOT been validated against other pages."
+            # Step 2: Self-apply guide to the same page (single-page validation)
+            logger.info(
+                "pipeline_step",
+                project_id=project_id_str,
+                step="guide_applier_self_apply",
             )
 
-            # Update status to PROVISIONAL_ONLY (not FAILED) since we have a provisional guide
-            await self.projects.update_status(project_id, ProjectStatus.PROVISIONAL_ONLY)
+            applier_result = await self.guide_applier.validate_page(
+                image_bytes=page_bytes,
+                provisional_guide=provisional_guide,
+                page_order=1,
+                project_id=project_id_str,
+            )
+
+            # Format validation_reports as list of (page_order, report_string) tuples
+            validation_reports = []
+            if applier_result.success:
+                validation_reports.append((applier_result.page_order, applier_result.validation_report))
+
+            # Step 3: Self-validate for stability
+            logger.info(
+                "pipeline_step",
+                project_id=project_id_str,
+                step="self_validator_single_page",
+            )
+
+            validator_result = await self.self_validator.validate_stability(
+                provisional_guide=provisional_guide,
+                validation_reports=validation_reports,
+                project_id=project_id_str,
+            )
+
+            if not validator_result.success:
+                # Self-validator failed, fall back to provisional
+                logger.warning(
+                    "pipeline_single_page_validator_failed",
+                    project_id=project_id_str,
+                    error=validator_result.error,
+                )
+                await self.projects.update_status(project_id, ProjectStatus.PROVISIONAL_ONLY)
+                return PipelineResult(
+                    success=True,
+                    has_stable_guide=False,
+                    provisional_guide=provisional_guide,
+                    rejection_message=f"Self-validation failed: {validator_result.error}",
+                    pages_processed=1,
+                    is_provisional_only=True,
+                )
+
+            confidence_report = validator_result.confidence_report
+            await self.guides.update_confidence_report(project_id, confidence_report)
+
+            # Step 4: Consolidate final guide
+            logger.info(
+                "single_page_consolidator_call",
+                project_id=project_id_str,
+                method="consolidate_guide",
+            )
+
+            consolidator_result = await self.guide_consolidator.consolidate_guide(
+                provisional_guide=provisional_guide,
+                confidence_report=confidence_report,
+                raw_stability_analysis=validator_result.raw_analysis,
+                project_id=project_id_str,
+            )
 
             logger.info(
-                "pipeline_single_page_complete",
+                "single_page_consolidator_done",
                 project_id=project_id_str,
-                step="single_page_flow",
-                status="provisional_only",
+                success=consolidator_result.success,
+                has_stable_guide=consolidator_result.stable_guide is not None,
             )
 
-            return PipelineResult(
-                success=True,  # Pipeline ran successfully
-                has_stable_guide=False,
-                stable_guide=None,
-                provisional_guide=provisional_guide,
-                rejection_message=rejection_message,
-                pages_processed=1,
-                is_provisional_only=True,
-            )
+            if not consolidator_result.success:
+                # Consolidator error, fall back to provisional
+                logger.warning(
+                    "pipeline_single_page_consolidator_failed",
+                    project_id=project_id_str,
+                    error=consolidator_result.error,
+                )
+                await self.projects.update_status(project_id, ProjectStatus.PROVISIONAL_ONLY)
+                return PipelineResult(
+                    success=True,
+                    has_stable_guide=False,
+                    provisional_guide=provisional_guide,
+                    rejection_message=f"Consolidator failed: {consolidator_result.error}",
+                    pages_processed=1,
+                    is_provisional_only=True,
+                )
+
+            # Decision: Did consolidator produce a stable guide?
+            if consolidator_result.stable_guide:
+                # SUCCESS: Room labels visible -> VALIDATED + stable_rules_json
+                stable_rules_json = None
+                if consolidator_result.structured_output:
+                    stable_rules_json = consolidator_result.structured_output.model_dump_json()
+
+                await self.guides.update_stable(
+                    project_id,
+                    consolidator_result.stable_guide,
+                    confidence_report,
+                    stable_rules_json=stable_rules_json,
+                )
+                await self.projects.update_status(project_id, ProjectStatus.VALIDATED)
+
+                logger.info(
+                    "pipeline_single_page_complete",
+                    project_id=project_id_str,
+                    step="single_page_flow",
+                    status="validated",
+                    has_stable_guide=True,
+                )
+
+                return PipelineResult(
+                    success=True,
+                    has_stable_guide=True,
+                    stable_guide=consolidator_result.stable_guide,
+                    provisional_guide=provisional_guide,
+                    pages_processed=1,
+                    is_provisional_only=False,
+                )
+
+            else:
+                # NO room labels (cover sheet, legend) -> PROVISIONAL_ONLY (OK)
+                rejection_message = (
+                    consolidator_result.rejection_message or
+                    "Consolidator did not produce stable guide (possibly no room labels visible)"
+                )
+
+                await self.projects.update_status(project_id, ProjectStatus.PROVISIONAL_ONLY)
+
+                logger.info(
+                    "pipeline_single_page_complete",
+                    project_id=project_id_str,
+                    step="single_page_flow",
+                    status="provisional_only",
+                    rejection_reason=rejection_message,
+                )
+
+                return PipelineResult(
+                    success=True,
+                    has_stable_guide=False,
+                    stable_guide=None,
+                    provisional_guide=provisional_guide,
+                    rejection_message=rejection_message,
+                    pages_processed=1,
+                    is_provisional_only=True,
+                )
 
         except PipelineError:
             raise

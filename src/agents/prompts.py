@@ -33,9 +33,39 @@ def get_guide_builder_system() -> str:
     return _load_prompt("guide_builder_system.txt")
 
 
-def get_guide_builder_prompt() -> str:
-    """Get the Guide Builder user prompt."""
-    return _load_prompt("guide_builder_user.txt")
+def get_guide_builder_prompt(token_summary_text: str = "") -> str:
+    """Get the Guide Builder user prompt.
+
+    Args:
+        token_summary_text: Optional token summary from PDF extraction.
+            If provided, replaces {token_summary_section} placeholder.
+    """
+    template = _load_prompt("guide_builder_user.txt")
+
+    # Build token summary section
+    if token_summary_text:
+        token_section = f"""
+═══════════════════════════════════════════════════════════════════════════════
+TEXT TOKENS (from PDF vector layer) — PRIORITY DATA
+═══════════════════════════════════════════════════════════════════════════════
+
+The following text tokens were extracted directly from the PDF vector layer.
+This data is EXACT and takes priority over visual analysis for text detection.
+
+{token_summary_text}
+
+Use this information to:
+1. CONFIRM room_name patterns (uppercase words like CLASSE, CORRIDOR)
+2. CONFIRM room_number patterns (2-4 digit numbers near names)
+3. IDENTIFY pairing relationship (position: below, right, etc.)
+4. IDENTIFY exclude candidates (high-frequency codes like "05" = wall type)
+
+When token data is available, your observations MUST align with it.
+"""
+    else:
+        token_section = ""
+
+    return template.replace("{token_summary_section}", token_section)
 
 
 # Guide Applier prompts

@@ -8,6 +8,7 @@ from typing import Optional
 
 from src.config import get_settings
 from src.logging import get_logger
+from src.extraction.token_summary import TokenSummary
 from .client import VisionClient
 from .prompts import get_guide_builder_system, get_guide_builder_prompt
 from .schemas import GuideBuilderOutput
@@ -35,13 +36,19 @@ class GuideBuilderAgent:
         self.client = client or VisionClient()
         self.settings = get_settings()
 
-    async def build_guide(self, image_bytes: bytes, project_id: str) -> GuideBuilderResult:
+    async def build_guide(
+        self,
+        image_bytes: bytes,
+        project_id: str,
+        token_summary: Optional[TokenSummary] = None,
+    ) -> GuideBuilderResult:
         """
         Analyze the first page and build a provisional visual guide.
 
         Args:
             image_bytes: PNG image bytes of page 1
             project_id: Project ID for logging
+            token_summary: Optional token summary from PDF extraction (PyMuPDF)
 
         Returns:
             GuideBuilderResult with the provisional guide or error
@@ -51,12 +58,16 @@ class GuideBuilderAgent:
             project_id=project_id,
             agent="guide_builder",
             step="build_guide",
+            has_token_summary=token_summary is not None,
         )
+
+        # Build prompt with optional token summary
+        token_summary_text = token_summary.to_prompt_text() if token_summary else ""
 
         try:
             response = await self.client.analyze_image(
                 image_bytes=image_bytes,
-                prompt=get_guide_builder_prompt(),
+                prompt=get_guide_builder_prompt(token_summary_text),
                 model=self.settings.model_guide_builder,
                 reasoning_effort="low",
                 verbosity="low",
