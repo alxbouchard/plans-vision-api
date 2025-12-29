@@ -134,6 +134,8 @@ class PageRepository:
         image_height: Optional[int] = None,
         image_sha256: Optional[str] = None,
         byte_size: Optional[int] = None,
+        source_pdf_path: Optional[str] = None,
+        source_pdf_page_index: Optional[int] = None,
     ) -> Page:
         """Create a new page with auto-incremented order and optional metadata."""
         # Get next order number
@@ -152,6 +154,8 @@ class PageRepository:
             image_height=image_height,
             image_sha256=image_sha256,
             byte_size=byte_size,
+            source_pdf_path=source_pdf_path,
+            source_pdf_page_index=source_pdf_page_index,
         )
         db_page = PageTable(
             id=str(page.id),
@@ -163,6 +167,8 @@ class PageRepository:
             image_height=page.image_height,
             image_sha256=page.image_sha256,
             byte_size=page.byte_size,
+            source_pdf_path=page.source_pdf_path,
+            source_pdf_page_index=page.source_pdf_page_index,
         )
         self.session.add(db_page)
         await self.session.commit()
@@ -188,6 +194,8 @@ class PageRepository:
             page_type=db_page.page_type,
             classification_confidence=confidence,
             classified_at=db_page.classified_at,
+            source_pdf_path=db_page.source_pdf_path,
+            source_pdf_page_index=db_page.source_pdf_page_index,
         )
 
     async def get_by_id(self, page_id: UUID, project_id: UUID) -> Optional[Page]:
