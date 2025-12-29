@@ -11,7 +11,7 @@ from .repositories import (
     PageRepository,
     VisualGuideRepository,
 )
-from .file_storage import FileStorage, ImageMetadata
+from .file_storage import FileStorage, ImageMetadata, PDFPageResult
 
 __all__ = [
     "init_database",
@@ -23,4 +23,5 @@ __all__ = [
     "VisualGuideRepository",
     "FileStorage",
     "ImageMetadata",
+    "PDFPageResult",
 ]
