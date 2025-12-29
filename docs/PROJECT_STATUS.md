@@ -192,6 +192,17 @@ Make the API capable of extracting rooms from a SINGLE page reliably, without re
 - [x] Phase 0: TokenBlockAdapter pairs room_name + room_number by proximity
 - [x] Gate validated: addenda_page_1 rooms_emitted = 296 (via PDF direct)
 - [x] Gate validated: test2_page6 rooms_emitted = 510 (via PDF direct)
+- [x] **Bugfix (2025-12-29): Single-page flow now runs full 4-agent pipeline**
+  - `_run_single_page_flow` executes: Builder → Applier (self-apply) → Validator → Consolidator
+  - `stable_rules_json` now persisted to DB for single-page projects with visible room labels
+  - Cover sheets (no room labels) correctly stay `provisional_only`
+  - Ticket: `docs/tickets/TICKET_PHASE3_4_SINGLE_PAGE_CONSOLIDATOR.md`
+  - Test: `tests/test_phase3_4_single_page_integration.py` (4 tests)
+
+### Current Blocker
+- Vision API cannot read room labels at 150-200 DPI on complex plans
+- Model correctly refuses to generate payloads when text is unreadable
+- **Solution needed**: PyMuPDF text extraction to bypass Vision for vectorial PDFs
 
 ### Phase 3.5 — Tokens-First Extraction (VALIDATED)
 

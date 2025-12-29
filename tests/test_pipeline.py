@@ -25,11 +25,11 @@ from src.agents.schemas import (
 
 
 class TestSinglePageFlow:
-    """Tests for Option B: Single-page provisional-only flow."""
+    """Tests for Phase 3.4: Single-page with full agent pipeline."""
 
     @pytest.mark.asyncio
-    async def test_single_page_returns_provisional_only(self):
-        """With only 1 page, return provisional guide only, no stable guide."""
+    async def test_single_page_cover_sheet_returns_provisional_only(self):
+        """Single page cover sheet (no room labels) returns provisional guide only."""
         # Create mocks
         session = MagicMock()
         file_storage = MagicMock()
@@ -41,7 +41,7 @@ class TestSinglePageFlow:
         project_mock.status = ProjectStatus.DRAFT
 
         page_mock = MagicMock()
-        page_mock.file_path = "/path/to/page1.png"
+        page_mock.file_path = "/path/to/cover_sheet.png"
         page_mock.order = 1
 
         orchestrator.projects.get_by_id = AsyncMock(return_value=project_mock)
@@ -49,14 +49,16 @@ class TestSinglePageFlow:
         orchestrator.pages.list_by_project = AsyncMock(return_value=[page_mock])
         orchestrator.guides.get_or_create = AsyncMock(return_value=MagicMock())
         orchestrator.guides.update_provisional = AsyncMock()
+        orchestrator.guides.update_stable = AsyncMock()
+        orchestrator.guides.update_confidence_report = AsyncMock()
 
         orchestrator.file_storage.read_image_bytes = AsyncMock(return_value=b"fake png")
 
-        # Mock guide builder to return provisional guide
+        # Mock guide builder - cover sheet with no room labels
         mock_builder_output = GuideBuilderOutput(
             observations=[],
             candidate_rules=[],
-            uncertainties=["Only one page available"],
+            uncertainties=["Cover sheet - no room labels visible"],
             assumptions=[],
         )
         orchestrator.guide_builder.build_guide = AsyncMock(
@@ -64,6 +66,40 @@ class TestSinglePageFlow:
                 provisional_guide='{"observations": [], "candidate_rules": []}',
                 structured_output=mock_builder_output,
                 success=True,
+            )
+        )
+
+        # Mock guide applier - nothing to validate on cover sheet
+        orchestrator.guide_applier.validate_page = AsyncMock(
+            return_value=MagicMock(
+                success=True,
+                page_order=1,
+                validation_report='{"rule_validations": [], "payload_validations": []}',
+            )
+        )
+
+        # Mock self-validator - no rules to validate
+        orchestrator.self_validator.validate_stability = AsyncMock(
+            return_value=MagicMock(
+                success=True,
+                raw_analysis="Cover sheet - no rules",
+                confidence_report=MagicMock(
+                    pages_testable=0,
+                    pages_passed=0,
+                    stable_ratio=0.0,
+                    rules_by_status={},
+                    can_generate_final=False,
+                ),
+            )
+        )
+
+        # Mock guide consolidator - rejects because no room labels
+        orchestrator.guide_consolidator.consolidate_guide = AsyncMock(
+            return_value=MagicMock(
+                success=True,
+                stable_guide=None,
+                structured_output=None,
+                rejection_message="No room labels visible on cover sheet",
             )
         )
 
@@ -76,8 +112,9 @@ class TestSinglePageFlow:
         assert result.stable_guide is None
         assert result.provisional_guide is not None
         assert result.is_provisional_only is True
-        assert "Only 1 page" in result.rejection_message
         assert result.pages_processed == 1
+        # rejection_message should explain why no stable guide
+        assert result.rejection_message is not None
 
 
 class TestContradictionFlow:
