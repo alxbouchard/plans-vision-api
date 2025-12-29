@@ -13,6 +13,7 @@ It's a preprocessor that groups tokens into blocks.
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass, field
 from typing import Optional
 from uuid import UUID
 
@@ -23,6 +24,49 @@ from src.agents.schemas import RulePayload, RuleKind
 from .tokens import TextToken, TokenSource
 
 logger = get_logger(__name__)
+
+
+@dataclass
+class AdapterMetrics:
+    """Metrics collected during token block creation.
+
+    Used for Phase 3.7 gate validation and debugging.
+    """
+    tokens_input: int = 0
+    room_name_tokens: int = 0
+    room_number_tokens: int = 0
+    blocks_created: int = 0
+    paired_with_number: int = 0
+    name_only_no_number: int = 0
+    excluded_by_rule: int = 0
+    excluded_reasons: dict[str, int] = field(default_factory=dict)
+
+    @property
+    def rooms_emitted(self) -> int:
+        return self.blocks_created
+
+    @property
+    def rooms_with_number(self) -> int:
+        return self.paired_with_number
+
+    @property
+    def rooms_with_number_ratio(self) -> float:
+        if self.blocks_created == 0:
+            return 0.0
+        return self.paired_with_number / self.blocks_created
+
+    def to_dict(self) -> dict:
+        return {
+            "tokens_input": self.tokens_input,
+            "room_name_tokens": self.room_name_tokens,
+            "room_number_tokens": self.room_number_tokens,
+            "rooms_emitted": self.rooms_emitted,
+            "rooms_with_number": self.rooms_with_number,
+            "rooms_with_number_ratio": round(self.rooms_with_number_ratio, 3),
+            "name_only_no_number": self.name_only_no_number,
+            "excluded_by_rule": self.excluded_by_rule,
+            "excluded_reasons": self.excluded_reasons,
+        }
 
 
 class SyntheticTextBlock(BaseModel):
@@ -110,8 +154,9 @@ class TokenBlockAdapter:
 
     Uses guide payloads to:
     1. Filter tokens by room_name and room_number patterns
-    2. Pair them by spatial proximity (below/near relation)
-    3. Produce synthetic blocks compatible with SpatialRoomLabeler
+    2. Apply exclude rules from guide (Phase 3.7)
+    3. Pair them by spatial proximity (below/near relation)
+    4. Produce synthetic blocks compatible with SpatialRoomLabeler
     """
 
     def __init__(
@@ -121,6 +166,7 @@ class TokenBlockAdapter:
     ):
         self.payloads = payloads
         self.max_pairing_distance = max_pairing_distance
+        self.last_metrics: Optional[AdapterMetrics] = None
 
         # Extract detector payloads
         self.room_name_detectors = [
@@ -136,6 +182,12 @@ class TokenBlockAdapter:
             if p.kind == RuleKind.PAIRING
         ]
 
+        # Extract exclude payloads (Phase 3.7)
+        self.exclude_rules = [
+            p for p in payloads
+            if p.kind == RuleKind.EXCLUDE
+        ]
+
         # Get pairing config
         self.pairing_relation = "below"  # default
         self.pairing_max_distance = max_pairing_distance
@@ -144,6 +196,21 @@ class TokenBlockAdapter:
                 self.pairing_relation = p.relation
             if p.max_distance_px:
                 self.pairing_max_distance = float(p.max_distance_px)
+
+    def _matches_exclude_rule(self, text: str) -> Optional[str]:
+        """Check if text matches any exclude rule.
+
+        Returns the exclude reason if matched, None otherwise.
+        """
+        for rule in self.exclude_rules:
+            if rule.pattern:
+                try:
+                    pattern = re.compile(rule.pattern, re.IGNORECASE)
+                    if pattern.fullmatch(text.strip()):
+                        return rule.reason or "excluded_by_pattern"
+                except re.error:
+                    pass
+        return None
 
     def create_blocks(
         self,
@@ -158,13 +225,20 @@ class TokenBlockAdapter:
 
         Returns:
             List of SyntheticTextBlock ready for SpatialRoomLabeler
+
+        Side effect:
+            Updates self.last_metrics with detailed metrics for gate validation.
         """
+        # Initialize metrics
+        metrics = AdapterMetrics(tokens_input=len(tokens))
+
         if not self.room_name_detectors and not self.room_number_detectors:
             logger.info(
                 "token_adapter_no_detectors",
                 page_id=str(page_id),
                 tokens_count=len(tokens),
             )
+            self.last_metrics = metrics
             return []
 
         # Step 1: Filter tokens by pattern
@@ -175,7 +249,20 @@ class TokenBlockAdapter:
             # Try room_name detectors
             for detector in self.room_name_detectors:
                 if _matches_payload_pattern(token.text, detector):
-                    room_name_tokens.append(token)
+                    # Check exclude rules before adding (Phase 3.7)
+                    exclude_reason = self._matches_exclude_rule(token.text)
+                    if exclude_reason:
+                        metrics.excluded_by_rule += 1
+                        metrics.excluded_reasons[exclude_reason] = \
+                            metrics.excluded_reasons.get(exclude_reason, 0) + 1
+                        logger.debug(
+                            "token_excluded_by_rule",
+                            page_id=str(page_id),
+                            token=token.text,
+                            reason=exclude_reason,
+                        )
+                    else:
+                        room_name_tokens.append(token)
                     break
 
             # Try room_number detectors
@@ -184,11 +271,15 @@ class TokenBlockAdapter:
                     room_number_tokens.append(token)
                     break
 
+        metrics.room_name_tokens = len(room_name_tokens)
+        metrics.room_number_tokens = len(room_number_tokens)
+
         logger.info(
             "token_adapter_filtered",
             page_id=str(page_id),
             room_name_tokens=len(room_name_tokens),
             room_number_tokens=len(room_number_tokens),
+            excluded_by_rule=metrics.excluded_by_rule,
         )
 
         # Step 2: Pair tokens by proximity
@@ -241,6 +332,7 @@ class TokenBlockAdapter:
                     source_tokens=[name_token.text, num_token.text],
                 )
                 blocks.append(block)
+                metrics.paired_with_number += 1
 
                 logger.debug(
                     "token_pair_created",
@@ -261,6 +353,7 @@ class TokenBlockAdapter:
                     source_tokens=[name_token.text],
                 )
                 blocks.append(block)
+                metrics.name_only_no_number += 1
 
                 logger.debug(
                     "token_name_only",
@@ -268,12 +361,19 @@ class TokenBlockAdapter:
                     room_name=name_token.text,
                 )
 
+        metrics.blocks_created = len(blocks)
+        self.last_metrics = metrics
+
+        # Log comprehensive metrics for Phase 3.7 gates
         logger.info(
-            "token_adapter_blocks_created",
+            "token_adapter_metrics",
             page_id=str(page_id),
-            blocks_count=len(blocks),
-            paired_count=len([b for b in blocks if b.room_number_token]),
-            name_only_count=len([b for b in blocks if not b.room_number_token]),
+            rooms_emitted=metrics.rooms_emitted,
+            rooms_with_number=metrics.rooms_with_number,
+            rooms_with_number_ratio=round(metrics.rooms_with_number_ratio, 3),
+            name_only_no_number=metrics.name_only_no_number,
+            excluded_by_rule=metrics.excluded_by_rule,
+            excluded_reasons=metrics.excluded_reasons,
         )
 
         return blocks

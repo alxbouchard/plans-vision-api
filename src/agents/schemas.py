@@ -210,6 +210,11 @@ class RulePayload(BaseModel):
         default=None,
         description="Maximum distance in pixels for pairing"
     )
+    # Exclude fields (Phase 3.7)
+    reason: Optional[str] = Field(
+        default=None,
+        description="For exclude: reason for exclusion (functional_annotation, etc.)"
+    )
     # Examples (for observability, not execution)
     examples: Optional[list[dict]] = Field(
         default=None,

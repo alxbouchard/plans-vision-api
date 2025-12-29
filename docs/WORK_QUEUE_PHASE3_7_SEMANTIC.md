@@ -11,6 +11,18 @@ Définir un JSON final stable destiné au RAG (rooms et doors fiables).
 - Tout le raffinement se fait via le Visual Guide (payloads + règles déclaratives)
 - On ne "répare" pas en changeant le code si la sémantique est mauvaise, on améliore le guide
 
+## Constraint: RuleKind is FROZEN
+
+**Phase 3.7 v1 utilise UNIQUEMENT les RuleKind existants:**
+- `token_detector` - Detect tokens (room_name, room_number)
+- `pairing` - Pair name and number tokens
+- `exclude` - Exclude patterns from room_name detection
+
+**INTERDIT en Phase 3.7 v1:**
+- Pas de nouveau payload kind (context_rule, zone_exclude, spatial_constraint)
+- Tout nouveau kind = RFC + changement de schéma
+- Ces features sont reportées à Phase 3.7 v2 si nécessaire
+
 ## Baseline (Phase 3.5)
 
 | Fixture | Tokens | Rooms Emitted | Observation |
@@ -18,7 +30,7 @@ Définir un JSON final stable destiné au RAG (rooms et doors fiables).
 | addenda_page_1 | 2779 | 296 | Beaucoup de faux positifs (ABOVE, BELOW, mots fonctionnels) |
 | test2_page6 | 1170 | 510 | Codes équipements confondus avec rooms |
 
-## Nouveaux Payloads Autorisés (Phase 3.7)
+## Payloads Autorisés (Phase 3.7 v1)
 
 ### 1. Exclude Token Patterns (déclaratifs)
 
@@ -34,49 +46,31 @@ Définir un JSON final stable destiné au RAG (rooms et doors fiables).
 
 Le guide observe que certains mots majuscules sont des annotations fonctionnelles, pas des noms de locaux.
 
-### 2. Context Rules (co-occurrence)
+### 2. Token Detector (existant)
 
 ```json
 {
-  "kind": "context_rule",
-  "rule_type": "require_nearby_number",
+  "kind": "token_detector",
   "token_type": "room_name",
-  "max_distance_px": 100,
-  "confidence_boost": 0.3,
-  "reason": "room_labels_have_numbers"
+  "detector": "regex",
+  "pattern": "[A-Z]{2,}",
+  "min_len": 2
 }
 ```
 
-Le guide observe que les vrais locaux ont généralement un numéro à proximité.
-
-### 3. Zone Exclusion (layout-based)
+### 3. Pairing (existant)
 
 ```json
 {
-  "kind": "zone_exclude",
-  "zone_type": "title_block",
-  "bbox_hint": "bottom_right_corner",
-  "reason": "title_blocks_not_rooms"
+  "kind": "pairing",
+  "name_token": "room_name",
+  "number_token": "room_number",
+  "relation": "below",
+  "max_distance_px": 200
 }
 ```
 
-Le guide observe que certaines zones (title block, légende, bordereau) ne contiennent pas de locaux.
-
-### 4. Must Be Inside Closed Region (optionnel)
-
-```json
-{
-  "kind": "spatial_constraint",
-  "constraint_type": "inside_closed_region",
-  "applies_to": "room_name",
-  "confidence_required": 0.7,
-  "reason": "rooms_are_enclosed_spaces"
-}
-```
-
-Uniquement si le guide l'observe et le décrit. Jamais hardcodé.
-
-## Tickets Phase 3.7
+## Tickets Phase 3.7 v1
 
 ### Ticket 7.1: Exclude Patterns dans GuideBuilder
 
@@ -94,47 +88,32 @@ Uniquement si le guide l'observe et le décrit. Jamais hardcodé.
 **Objectif:** Le TokenBlockAdapter filtre les tokens qui matchent un payload `exclude`.
 
 **Implémentation:**
-- Ajouter logique dans `TokenBlockAdapter.create_blocks()` pour filtrer
-- Log obligatoire: `tokens_excluded_count`, `exclude_reasons`
+- Logique dans `TokenBlockAdapter.create_blocks()` pour filtrer (DÉJÀ FAIT)
+- Log obligatoire: `excluded_by_rule`, `excluded_reasons`
 
-**Gate:** Sur addenda_page_1, `tokens_excluded > 0` quand exclude payloads présents
+**Gate:** Sur addenda_page_1, `excluded_by_rule > 0` quand exclude payloads présents
 
-### Ticket 7.3: Context Rule - Require Nearby Number
+### Ticket 7.3: Tests E2E Gates
 
-**Objectif:** Réduire la confidence des room_name isolés (sans room_number proche).
-
-**Implémentation:**
-- Si `context_rule.require_nearby_number` et pas de number proche → confidence *= 0.5
-- Toujours émettre mais avec confidence réduite
-
-**Gate:** Sur addenda_page_1, rooms sans number ont confidence < 0.6
-
-### Ticket 7.4: Zone Exclusion
-
-**Objectif:** Exclure les tokens dans les zones non-plan (title block, légende).
-
-**Implémentation:**
-- GuideBuilder observe les zones récurrentes (coins, bordures)
-- Génère payload `zone_exclude` avec bbox approximatif
-- TokenBlockAdapter ignore les tokens dans ces zones
-
-**Gate:** Sur addenda_page_1, aucun room dans title block zone
-
-### Ticket 7.5: Validation E2E Semantic
-
-**Objectif:** Valider que les faux positifs sont drastiquement réduits.
+**Objectif:** Valider que les gates passent après exclude payloads.
 
 **Test:**
 ```python
-def test_addenda_semantic_filtering():
+def test_gate_7a_addenda():
     rooms = extract_rooms("addenda_page_1")
-    assert len(rooms) > 0  # Pas de régression
-    assert len(rooms) <= 40  # Plafond faux positifs
+    assert len(rooms) > 0, "Regression: no rooms"
+    assert len(rooms) <= 60, f"Too many rooms: {len(rooms)}"
+    with_number = [r for r in rooms if r.room_number]
+    ratio = len(with_number) / len(rooms)
+    assert ratio >= 0.70, f"Only {ratio:.0%} have room_number"
 
-def test_test2_semantic_filtering():
+def test_gate_7b_test2():
     rooms = extract_rooms("test2_page6")
-    assert len(rooms) > 0
-    assert len(rooms) <= 80
+    assert len(rooms) > 0, "Regression: no rooms"
+    assert len(rooms) <= 150, f"Too many rooms: {len(rooms)}"
+    with_number = [r for r in rooms if r.room_number]
+    ratio = len(with_number) / len(rooms)
+    assert ratio >= 0.50, f"Only {ratio:.0%} have room_number"
 ```
 
 ## Gates (Non Discutables)
@@ -145,18 +124,8 @@ def test_test2_semantic_filtering():
 |--------|----------|--------|---------------|
 | rooms_emitted | 296 | > 0 AND <= 60 | Plafond réaliste pour une page |
 | rooms_with_number | N/A | >= 70% | Vrais locaux ont un numéro |
-| true_rooms_preserved | N/A | >= 90% | Pas de régression |
 
-**Validation code:**
-```python
-def test_gate_7a_addenda():
-    rooms = extract_rooms("addenda_page_1")
-    assert len(rooms) > 0, "Regression: no rooms"
-    assert len(rooms) <= 60, f"Too many rooms: {len(rooms)}"
-    with_number = [r for r in rooms if r.room_number]
-    ratio = len(with_number) / len(rooms)
-    assert ratio >= 0.70, f"Only {ratio:.0%} have room_number"
-```
+**Validation script:** `python scripts/phase3_7_gate_check.py`
 
 ### GATE 7B - Test2 Semantic
 
@@ -164,55 +133,55 @@ def test_gate_7a_addenda():
 |--------|----------|--------|---------------|
 | rooms_emitted | 510 | > 0 AND <= 150 | Plafond réaliste |
 | rooms_with_number | N/A | >= 50% | Plan peut avoir labels mixtes |
-| true_rooms_preserved | N/A | >= 90% | Pas de régression |
 
-**Validation code:**
-```python
-def test_gate_7b_test2():
-    rooms = extract_rooms("test2_page6")
-    assert len(rooms) > 0, "Regression: no rooms"
-    assert len(rooms) <= 150, f"Too many rooms: {len(rooms)}"
-    with_number = [r for r in rooms if r.room_number]
-    ratio = len(with_number) / len(rooms)
-    assert ratio >= 0.50, f"Only {ratio:.0%} have room_number"
-```
+**Validation script:** `python scripts/phase3_7_gate_check.py`
 
 ### GATE 7C - Zero Hardcode
 
 ```bash
 # Ce grep doit retourner 0 résultats
-grep -r "ABOVE\|BELOW\|TYP\|REFER" src/extraction/ --include="*.py" | grep -v "test\|#"
+# Cherche des listes hardcodées de mots à exclure dans src/extraction/
+grep -rE 'EXCLUDED_WORDS|STOPWORDS|BLACKLIST|ROOM_EXCLUDES|"\bABOVE\b"|"\bBELOW\b"|"\bTYP\b"|"\bREFER\b"' src/extraction/ --include="*.py"
 ```
 
 Toutes les exclusions proviennent du guide uniquement.
+Les patterns comme `[A-Z]{2,}` dans les payloads sont OK car ils viennent du guide.
 
-## Livrables
+## Future (Phase 3.7 v2 - si nécessaire)
+
+Ces features sont reportées et nécessitent un RFC:
+
+- `context_rule` - Require nearby number
+- `zone_exclude` - Title block exclusion
+- `spatial_constraint` - Must be inside closed region
+- Golden set pour valider "true_rooms_preserved >= 90%"
+
+## Livrables Phase 3.7 v1
 
 1. `docs/WORK_QUEUE_PHASE3_7_SEMANTIC.md` (ce fichier)
-2. `tests/test_phase3_7_semantic_gates.py`
-3. Mise à jour `docs/PROJECT_STATUS.md`
-4. Mise à jour prompts GuideBuilder pour observer exclusions
+2. `scripts/phase3_7_gate_check.py` (FAIT)
+3. Mise à jour prompts GuideBuilder pour observer exclusions
+4. `tests/test_phase3_7_gates.py`
 
 ## Stop Conditions
 
 - Si un ticket nécessite de modifier SpatialRoomLabeler: STOP, RFC
 - Si une exclusion doit être hardcodée: STOP, ajouter au guide
+- Si un nouveau RuleKind est nécessaire: STOP, RFC Phase 3.7 v2
 - Si les gates ne passent pas après 3 itérations: STOP, revoir la stratégie guide
 
 ## Ordre d'Exécution
 
 1. Ticket 7.1 (GuideBuilder exclude)
-2. Ticket 7.2 (TokenBlockAdapter exclude)
+2. Ticket 7.2 (TokenBlockAdapter exclude) - DÉJÀ FAIT
 3. Valider GATE 7C (zero hardcode)
-4. Ticket 7.3 (context rules)
-5. Ticket 7.4 (zone exclusion)
-6. Valider GATE 7A et 7B (semantic filtering)
-7. Ticket 7.5 (E2E validation)
+4. Ticket 7.3 (E2E tests)
+5. Valider GATE 7A et 7B
 
 ## Définition de Done
 
-- [ ] GATE 7A: addenda_page_1 rooms_emitted <= 40
-- [ ] GATE 7B: test2_page6 rooms_emitted <= 80
+- [ ] GATE 7A: addenda_page_1 rooms_emitted <= 60, rooms_with_number >= 70%
+- [ ] GATE 7B: test2_page6 rooms_emitted <= 150, rooms_with_number >= 50%
 - [ ] GATE 7C: grep hardcode = 0
-- [ ] Tous les vrais locaux préservés
-- [ ] JSON stable pour RAG
+- [ ] Guide génère au moins 1 exclude payload
+- [ ] Logs contiennent excluded_by_rule et excluded_reasons
