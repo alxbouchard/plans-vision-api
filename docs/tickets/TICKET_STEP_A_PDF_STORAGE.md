@@ -1,7 +1,8 @@
 # TICKET: Step A — PDF Storage Association
 
-**Status: PLANNING**
+**Status: PR1 DONE, PR2 PENDING**
 **Created: 2025-12-29**
+**Updated: 2025-12-29**
 **Depends on: Steps B/C/D/E (COMPLETE)**
 
 ## Objective
@@ -204,12 +205,23 @@ If Step A risks breaking existing functionality, split into two PRs:
 
 ## Checklist
 
-- [ ] A1: Ticket created (this file)
-- [ ] A2: Migration script + schema change
-- [ ] A3: PDF upload endpoint
-- [ ] A4: Non-regression test passing
-- [ ] A5: Tokens-first test passing
-- [ ] All existing tests still passing
+- [x] A1: Ticket created (this file)
+- [x] A2: Migration script + schema change (PR1)
+- [ ] A3: PDF upload endpoint (PR2)
+- [x] A4: Non-regression test passing (PR1)
+- [ ] A5: Tokens-first test passing (PR2)
+- [x] All existing tests still passing (280 pass, 4 skip)
+
+## Migration Notes
+
+**Current State (PR1):**
+- Standalone SQLite migration script: `scripts/migrations/001_add_pdf_source_fields.py`
+- Fields: `source_pdf_path` (TEXT), `source_pdf_page_index` (INTEGER)
+- Idempotent: safe to run multiple times
+
+**Future (PR2/PR3):**
+- Port to Alembic if production deployment requires version tracking
+- Consider adding `pdf_masters` FK if V3 render pipeline needs integration
 
 ## Success Criteria
 

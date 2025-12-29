@@ -70,6 +70,10 @@ class PageTable(Base):
     classification_confidence: Mapped[Optional[float]] = mapped_column(Integer, nullable=True)  # stored as int * 1000
     classified_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
+    # PDF source association (Phase 3.5 - tokens-first extraction)
+    source_pdf_path: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    source_pdf_page_index: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
     project: Mapped["ProjectTable"] = relationship("ProjectTable", back_populates="pages")
 
 
