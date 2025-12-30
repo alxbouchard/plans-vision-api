@@ -10,6 +10,8 @@ from .repositories import (
     ProjectRepository,
     PageRepository,
     VisualGuideRepository,
+    ExtractedRoomRepository,
+    ExtractedDoorRepository,
 )
 from .file_storage import FileStorage, ImageMetadata, PDFPageResult
 
@@ -21,6 +23,8 @@ __all__ = [
     "ProjectRepository",
     "PageRepository",
     "VisualGuideRepository",
+    "ExtractedRoomRepository",
+    "ExtractedDoorRepository",
     "FileStorage",
     "ImageMetadata",
     "PDFPageResult",
