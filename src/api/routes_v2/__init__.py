@@ -2,5 +2,6 @@
 
 from .extraction import router as extraction_router
 from .query import router as query_router
+from .objects import router as objects_router
 
-__all__ = ["extraction_router", "query_router"]
+__all__ = ["extraction_router", "query_router", "objects_router"]

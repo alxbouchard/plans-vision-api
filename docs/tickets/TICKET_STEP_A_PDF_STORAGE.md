@@ -1,7 +1,8 @@
 # TICKET: Step A — PDF Storage Association
 
-**Status: PLANNING**
+**Status: PR1 DONE, PR2 DONE ✓**
 **Created: 2025-12-29**
+**Updated: 2025-12-29**
 **Depends on: Steps B/C/D/E (COMPLETE)**
 
 ## Objective
@@ -204,16 +205,40 @@ If Step A risks breaking existing functionality, split into two PRs:
 
 ## Checklist
 
-- [ ] A1: Ticket created (this file)
-- [ ] A2: Migration script + schema change
-- [ ] A3: PDF upload endpoint
-- [ ] A4: Non-regression test passing
-- [ ] A5: Tokens-first test passing
-- [ ] All existing tests still passing
+- [x] A1: Ticket created (this file)
+- [x] A2: Migration script + schema change (PR1)
+- [x] A3: PDF upload endpoint (PR2) ✓
+- [x] A4: Non-regression test passing (PR1)
+- [x] A5: Tokens-first test passing (PR2) ✓
+- [x] All existing tests still passing (285 pass, 4 skip)
+
+## Migration Notes
+
+**Current State (PR1):**
+- Standalone SQLite migration script: `scripts/migrations/001_add_pdf_source_fields.py`
+- Fields: `source_pdf_path` (TEXT), `source_pdf_page_index` (INTEGER)
+- Idempotent: safe to run multiple times
+
+**Future (PR2/PR3):**
+- Port to Alembic if production deployment requires version tracking
+- Consider adding `pdf_masters` FK if V3 render pipeline needs integration
 
 ## Success Criteria
 
-1. `POST /projects/{id}/pages` (PNG) works exactly as before
-2. `POST /projects/{id}/pdf` creates pages with PDF association
-3. `/analyze` uses tokens-first when pdf_path is set
-4. Addenda page 1 produces stable_rules_json with 3+ payloads
+1. `POST /projects/{id}/pages` (PNG) works exactly as before ✓
+2. `POST /projects/{id}/pdf` creates pages with PDF association ✓
+3. `/analyze` uses tokens-first when pdf_path is set ✓
+4. Addenda page 1 produces stable_rules_json with 3+ payloads ✓
+
+## Test Results (2025-12-29)
+
+**Real test with Addenda PDF:**
+- `project_id`: `8cc9a22a-854f-4bfc-906e-ed44bf54007f`
+- `status`: `validated`
+- `pages_created`: 3
+- `stable_rules`: 6 rules (scores 0.88–0.97)
+- `payloads`: 5 actionable (2 token_detector, 1 pairing, 2 exclude)
+
+**PRs:**
+- PR1: https://github.com/alxbouchard/plans-vision-api/pull/1
+- PR2: https://github.com/alxbouchard/plans-vision-api/pull/2

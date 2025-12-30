@@ -17,7 +17,7 @@ from src.models.entities import (
     VisualGuide,
     ConfidenceReport,
 )
-from .database import ProjectTable, PageTable, VisualGuideTable
+from .database import ProjectTable, PageTable, VisualGuideTable, ExtractedRoomTable, ExtractedDoorTable
 
 
 class ProjectRepository:
@@ -134,6 +134,8 @@ class PageRepository:
         image_height: Optional[int] = None,
         image_sha256: Optional[str] = None,
         byte_size: Optional[int] = None,
+        source_pdf_path: Optional[str] = None,
+        source_pdf_page_index: Optional[int] = None,
     ) -> Page:
         """Create a new page with auto-incremented order and optional metadata."""
         # Get next order number
@@ -152,6 +154,8 @@ class PageRepository:
             image_height=image_height,
             image_sha256=image_sha256,
             byte_size=byte_size,
+            source_pdf_path=source_pdf_path,
+            source_pdf_page_index=source_pdf_page_index,
         )
         db_page = PageTable(
             id=str(page.id),
@@ -163,6 +167,8 @@ class PageRepository:
             image_height=page.image_height,
             image_sha256=page.image_sha256,
             byte_size=page.byte_size,
+            source_pdf_path=page.source_pdf_path,
+            source_pdf_page_index=page.source_pdf_page_index,
         )
         self.session.add(db_page)
         await self.session.commit()
@@ -188,6 +194,8 @@ class PageRepository:
             page_type=db_page.page_type,
             classification_confidence=confidence,
             classified_at=db_page.classified_at,
+            source_pdf_path=db_page.source_pdf_path,
+            source_pdf_page_index=db_page.source_pdf_page_index,
         )
 
     async def get_by_id(self, page_id: UUID, project_id: UUID) -> Optional[Page]:
@@ -425,3 +433,163 @@ class VisualGuideRepository:
         db_guide.confidence_report_json = confidence_report.model_dump_json()
         await self.session.commit()
         return True
+
+
+class ExtractedRoomRepository:
+    """Repository for ExtractedRoom entities (Phase 3.7 P0 - Persistence)."""
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def save_rooms(self, page_id: UUID, rooms: list) -> int:
+        """Save extracted rooms for a page, replacing any existing ones.
+
+        Args:
+            page_id: The page ID
+            rooms: List of ExtractedRoom entities
+
+        Returns:
+            Number of rooms saved
+        """
+        from sqlalchemy import delete
+
+        # Delete existing rooms for this page
+        await self.session.execute(
+            delete(ExtractedRoomTable).where(
+                ExtractedRoomTable.page_id == str(page_id)
+            )
+        )
+
+        # Insert new rooms
+        for room in rooms:
+            db_room = ExtractedRoomTable(
+                id=room.id,
+                page_id=str(page_id),
+                room_name=room.room_name,
+                room_number=room.room_number,
+                label=room.label,
+                bbox_json=json.dumps(room.geometry.bbox),
+                confidence=int(room.confidence * 1000),
+                confidence_level=room.confidence_level.value,
+                sources_json=json.dumps(room.sources),
+            )
+            self.session.add(db_room)
+
+        await self.session.commit()
+        return len(rooms)
+
+    async def list_by_page(self, page_id: UUID) -> list[dict]:
+        """List all rooms for a page.
+
+        Returns dicts with room data (not entity objects) for API response.
+        """
+        result = await self.session.execute(
+            select(ExtractedRoomTable).where(
+                ExtractedRoomTable.page_id == str(page_id)
+            )
+        )
+
+        rooms = []
+        for db_room in result.scalars().all():
+            rooms.append({
+                "id": db_room.id,
+                "page_id": db_room.page_id,
+                "room_name": db_room.room_name,
+                "room_number": db_room.room_number,
+                "label": db_room.label,
+                "bbox": json.loads(db_room.bbox_json),
+                "confidence": db_room.confidence / 1000.0,
+                "confidence_level": db_room.confidence_level,
+                "sources": json.loads(db_room.sources_json),
+            })
+        return rooms
+
+    async def list_by_project(self, project_id: UUID) -> list[dict]:
+        """List all rooms for a project (all pages).
+
+        Joins with pages table to get rooms for all pages in the project.
+        """
+        result = await self.session.execute(
+            select(ExtractedRoomTable)
+            .join(PageTable, ExtractedRoomTable.page_id == PageTable.id)
+            .where(PageTable.project_id == str(project_id))
+        )
+
+        rooms = []
+        for db_room in result.scalars().all():
+            rooms.append({
+                "id": db_room.id,
+                "page_id": db_room.page_id,
+                "room_name": db_room.room_name,
+                "room_number": db_room.room_number,
+                "label": db_room.label,
+                "bbox": json.loads(db_room.bbox_json),
+                "confidence": db_room.confidence / 1000.0,
+                "confidence_level": db_room.confidence_level,
+                "sources": json.loads(db_room.sources_json),
+            })
+        return rooms
+
+    async def count_by_project(self, project_id: UUID) -> int:
+        """Count rooms for a project."""
+        result = await self.session.execute(
+            select(func.count(ExtractedRoomTable.id))
+            .join(PageTable, ExtractedRoomTable.page_id == PageTable.id)
+            .where(PageTable.project_id == str(project_id))
+        )
+        return result.scalar() or 0
+
+
+class ExtractedDoorRepository:
+    """Repository for ExtractedDoor entities (Phase 3.7 P0 - Persistence)."""
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def save_doors(self, page_id: UUID, doors: list) -> int:
+        """Save extracted doors for a page, replacing any existing ones."""
+        from sqlalchemy import delete
+
+        await self.session.execute(
+            delete(ExtractedDoorTable).where(
+                ExtractedDoorTable.page_id == str(page_id)
+            )
+        )
+
+        for door in doors:
+            db_door = ExtractedDoorTable(
+                id=door.id,
+                page_id=str(page_id),
+                door_number=getattr(door, 'door_number', None),
+                label=door.label,
+                bbox_json=json.dumps(door.geometry.bbox),
+                confidence=int(door.confidence * 1000),
+                confidence_level=door.confidence_level.value,
+                sources_json=json.dumps(door.sources),
+            )
+            self.session.add(db_door)
+
+        await self.session.commit()
+        return len(doors)
+
+    async def list_by_project(self, project_id: UUID) -> list[dict]:
+        """List all doors for a project."""
+        result = await self.session.execute(
+            select(ExtractedDoorTable)
+            .join(PageTable, ExtractedDoorTable.page_id == PageTable.id)
+            .where(PageTable.project_id == str(project_id))
+        )
+
+        doors = []
+        for db_door in result.scalars().all():
+            doors.append({
+                "id": db_door.id,
+                "page_id": db_door.page_id,
+                "door_number": db_door.door_number,
+                "label": db_door.label,
+                "bbox": json.loads(db_door.bbox_json),
+                "confidence": db_door.confidence / 1000.0,
+                "confidence_level": db_door.confidence_level,
+                "sources": json.loads(db_door.sources_json),
+            })
+        return doors
