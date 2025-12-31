@@ -70,6 +70,10 @@ class PageTable(Base):
     classification_confidence: Mapped[Optional[float]] = mapped_column(Integer, nullable=True)  # stored as int * 1000
     classified_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
+    # PDF source association (Phase 3.5 - tokens-first extraction)
+    source_pdf_path: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    source_pdf_page_index: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
     project: Mapped["ProjectTable"] = relationship("ProjectTable", back_populates="pages")
 
 
@@ -167,6 +171,49 @@ class RenderJobTable(Base):
     trace_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+# =============================================================================
+# Extracted Objects Tables: Rooms, Doors (Phase 3.7 P0 - Persistence)
+# =============================================================================
+
+class ExtractedRoomTable(Base):
+    """SQLAlchemy model for extracted rooms."""
+    __tablename__ = "extracted_rooms"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    page_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("pages.id", ondelete="CASCADE"),
+        index=True
+    )
+    room_name: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
+    room_number: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    label: Mapped[str] = mapped_column(String(512))
+    bbox_json: Mapped[str] = mapped_column(Text)  # [x, y, width, height]
+    confidence: Mapped[int] = mapped_column(Integer)  # stored as int * 1000
+    confidence_level: Mapped[str] = mapped_column(String(20))
+    sources_json: Mapped[str] = mapped_column(Text)  # ["tokens_first", "pymupdf"]
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class ExtractedDoorTable(Base):
+    """SQLAlchemy model for extracted doors."""
+    __tablename__ = "extracted_doors"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    page_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("pages.id", ondelete="CASCADE"),
+        index=True
+    )
+    door_number: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    label: Mapped[str] = mapped_column(String(512))
+    bbox_json: Mapped[str] = mapped_column(Text)  # [x, y, width, height]
+    confidence: Mapped[int] = mapped_column(Integer)  # stored as int * 1000
+    confidence_level: Mapped[str] = mapped_column(String(20))
+    sources_json: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
 # Engine and session factory (initialized lazily)

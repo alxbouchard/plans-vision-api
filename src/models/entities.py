@@ -56,6 +56,11 @@ class Page(BaseModel):
     classification_confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0, description="Classification confidence score")
     classified_at: Optional[datetime] = Field(default=None, description="When the page was classified")
 
+    # PDF source association (Phase 3.5 - tokens-first extraction)
+    # If set, enables PyMuPDF token extraction for GuideBuilder
+    source_pdf_path: Optional[str] = Field(default=None, description="Path to source PDF file")
+    source_pdf_page_index: Optional[int] = Field(default=None, ge=0, description="Page index in PDF (0-indexed)")
+
     model_config = {"from_attributes": True}
 
 
