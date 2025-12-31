@@ -1,5 +1,6 @@
 """Pipeline orchestrator for the multi-agent analysis flow."""
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -21,10 +22,32 @@ from src.agents import (
     SelfValidatorAgent,
     GuideConsolidatorAgent,
 )
-from src.extraction.tokens import get_tokens_for_page, PageRasterSpec
+from src.extraction.tokens import get_tokens_for_page, PageRasterSpec, TextToken
 from src.extraction.token_summary import generate_token_summary, TokenSummary
 
+# Patterns for page scoring (same as token_summary but used on full token list)
+_ROOM_NAME_PATTERN = re.compile(r"^[A-ZÀÂÄÉÈÊËÏÎÔÙÛÜÇ]{2,}$")
+_ROOM_NUMBER_PATTERN = re.compile(r"^\d{2,4}$")
+
 logger = get_logger(__name__)
+
+
+@dataclass
+class PageScore:
+    """Score for page selection based on FULL token analysis (not limited).
+
+    Uses complete token counts for accurate page scoring.
+    The token_summary field is kept for the GuideBuilder prompt only.
+    """
+    page_id: UUID
+    page_order: int
+    tokens_count: int
+    three_digit_total: int
+    three_digit_paired: int
+    pairs_total: int
+    name_candidates: int
+    total_score: int
+    token_summary: Optional[TokenSummary] = None
 
 
 class PipelineError(Exception):
@@ -158,6 +181,192 @@ class PipelineOrchestrator:
             )
             return None
 
+    def _compute_full_token_metrics(
+        self,
+        tokens: list[TextToken],
+        max_pairing_distance: int = 100,
+    ) -> tuple[int, int, int, int, int]:
+        """Compute page scoring metrics from FULL token list (no limit).
+
+        Returns:
+            Tuple of (tokens_count, three_digit_total, three_digit_paired, pairs_total, name_candidates)
+        """
+        if not tokens:
+            return (0, 0, 0, 0, 0)
+
+        # Separate tokens by type
+        name_tokens: list[TextToken] = []
+        number_tokens: list[TextToken] = []
+
+        for token in tokens:
+            text = token.text.strip()
+            if _ROOM_NAME_PATTERN.match(text):
+                name_tokens.append(token)
+            elif _ROOM_NUMBER_PATTERN.match(text):
+                number_tokens.append(token)
+
+        # Helper to compute distance between bbox centers
+        def bbox_distance(bbox1: list[int], bbox2: list[int]) -> float:
+            c1 = (bbox1[0] + bbox1[2] / 2, bbox1[1] + bbox1[3] / 2)
+            c2 = (bbox2[0] + bbox2[2] / 2, bbox2[1] + bbox2[3] / 2)
+            return ((c1[0] - c2[0]) ** 2 + (c1[1] - c2[1]) ** 2) ** 0.5
+
+        # Count 3-digit numbers (total)
+        three_digit_total = sum(1 for t in number_tokens if len(t.text.strip()) == 3)
+
+        # Count pairs and 3-digit paired
+        three_digit_paired = 0
+        pairs_total = 0
+
+        for num_token in number_tokens:
+            num_text = num_token.text.strip()
+
+            # Find nearest name token within distance
+            has_nearby_name = False
+            for name_token in name_tokens:
+                dist = bbox_distance(num_token.bbox, name_token.bbox)
+                if dist <= max_pairing_distance:
+                    has_nearby_name = True
+                    break
+
+            if has_nearby_name:
+                pairs_total += 1
+                if len(num_text) == 3:
+                    three_digit_paired += 1
+
+        return (len(tokens), three_digit_total, three_digit_paired, pairs_total, len(name_tokens))
+
+    async def _score_page(
+        self,
+        page,
+        pdf_path: Optional[Path] = None,
+    ) -> PageScore:
+        """Score a page for guide building suitability based on FULL tokens.
+
+        Uses complete token counts (not limited to 30) for accurate scoring.
+        Score = (3-digit paired × 5) + (pairs × 2) + name_candidates + bonus
+
+        Higher score = better page for room extraction rules.
+        """
+        page_id = page.id
+        page_order = page.order
+
+        # Determine PDF path and page index
+        effective_pdf_path = pdf_path
+        effective_page_index = 0
+
+        if effective_pdf_path is None and page.source_pdf_path:
+            effective_pdf_path = Path(page.source_pdf_path)
+            effective_page_index = page.source_pdf_page_index or 0
+
+        # Get raw tokens for scoring (FULL list, no limit)
+        tokens: list[TextToken] = []
+        if effective_pdf_path and effective_pdf_path.exists():
+            try:
+                tokens = await get_tokens_for_page(
+                    page_id=page_id,
+                    pdf_path=effective_pdf_path,
+                    page_number=effective_page_index,
+                    use_vision=False,
+                )
+            except Exception as e:
+                logger.warning(
+                    "page_score_token_error",
+                    page_id=str(page_id),
+                    error=str(e),
+                )
+
+        if not tokens:
+            return PageScore(
+                page_id=page_id,
+                page_order=page_order,
+                tokens_count=0,
+                three_digit_total=0,
+                three_digit_paired=0,
+                pairs_total=0,
+                name_candidates=0,
+                total_score=0,
+                token_summary=None,
+            )
+
+        # Compute metrics on FULL token list
+        (
+            tokens_count,
+            three_digit_total,
+            three_digit_paired,
+            pairs_total,
+            name_candidates,
+        ) = self._compute_full_token_metrics(tokens)
+
+        # Score: prioritize 3-digit paired numbers (strongest signal for room labels)
+        # 3-digit paired × 5 + pairs × 2 + names × 1 + bonus
+        pairing_bonus = 10 if pairs_total > 20 else 0
+        total_score = (three_digit_paired * 5) + (pairs_total * 2) + name_candidates + pairing_bonus
+
+        # Generate token_summary for the GuideBuilder prompt (limited, but not used for scoring)
+        token_summary = generate_token_summary(tokens)
+
+        return PageScore(
+            page_id=page_id,
+            page_order=page_order,
+            tokens_count=tokens_count,
+            three_digit_total=three_digit_total,
+            three_digit_paired=three_digit_paired,
+            pairs_total=pairs_total,
+            name_candidates=name_candidates,
+            total_score=total_score,
+            token_summary=token_summary,
+        )
+
+    async def _select_best_guide_page(
+        self,
+        pages: list,
+        pdf_path: Optional[Path] = None,
+    ) -> tuple:
+        """Select the best page for guide building based on FULL token analysis.
+
+        Returns:
+            Tuple of (best_page, best_page_score, all_scores)
+        """
+        scores = []
+
+        for page in pages:
+            score = await self._score_page(page, pdf_path)
+            scores.append(score)
+
+            logger.info(
+                "page_score_full_tokens_computed",
+                page_id=str(page.id),
+                page_order=page.order,
+                tokens_count=score.tokens_count,
+                three_digit_total=score.three_digit_total,
+                three_digit_paired=score.three_digit_paired,
+                pairs_total=score.pairs_total,
+                name_candidates=score.name_candidates,
+                score_final=score.total_score,
+            )
+
+        # Sort by score descending
+        scores.sort(key=lambda s: s.total_score, reverse=True)
+
+        best_score = scores[0]
+        best_page = next(p for p in pages if p.id == best_score.page_id)
+
+        logger.info(
+            "selected_guide_page_full_tokens",
+            page_id=str(best_page.id),
+            page_order=best_page.order,
+            tokens_count=best_score.tokens_count,
+            three_digit_total=best_score.three_digit_total,
+            three_digit_paired=best_score.three_digit_paired,
+            pairs_total=best_score.pairs_total,
+            name_candidates=best_score.name_candidates,
+            score_final=best_score.total_score,
+            total_pages=len(pages),
+        )
+
+        return best_page, best_score, scores
+
     async def run(
         self,
         project_id: UUID,
@@ -217,34 +426,33 @@ class PipelineOrchestrator:
             # Initialize guide storage
             guide = await self.guides.get_or_create(project_id)
 
-            # Step 1: Build provisional guide from page 1
+            # Step 0: Select best page for guide building (tokens-first scoring)
+            logger.info(
+                "pipeline_step",
+                project_id=project_id_str,
+                step="page_selection",
+            )
+
+            guide_page, guide_page_score, all_scores = await self._select_best_guide_page(
+                pages, pdf_path
+            )
+
+            # Step 1: Build provisional guide from best page
             logger.info(
                 "pipeline_step",
                 project_id=project_id_str,
                 step="guide_builder",
-                page=1,
+                page=guide_page.order,
+                selected_by_score=True,
             )
 
-            page_1 = pages[0]
-            page_1_bytes = await self.file_storage.read_image_bytes(page_1.file_path)
+            guide_page_bytes = await self.file_storage.read_image_bytes(guide_page.file_path)
 
-            # Extract token summary from PDF (if available)
-            # Priority: explicit pdf_path param > page.source_pdf_path
-            effective_pdf_path = pdf_path
-            effective_page_index = 0
-
-            if effective_pdf_path is None and page_1.source_pdf_path:
-                effective_pdf_path = Path(page_1.source_pdf_path)
-                effective_page_index = page_1.source_pdf_page_index or 0
-
-            token_summary = await self._get_token_summary(
-                page_id=page_1.id,
-                pdf_path=effective_pdf_path,
-                page_number=effective_page_index,
-            )
+            # Use the token_summary already computed during scoring
+            token_summary = guide_page_score.token_summary
 
             builder_result = await self.guide_builder.build_guide(
-                image_bytes=page_1_bytes,
+                image_bytes=guide_page_bytes,
                 project_id=project_id_str,
                 token_summary=token_summary,
             )
@@ -259,16 +467,19 @@ class PipelineOrchestrator:
             provisional_guide = builder_result.provisional_guide
             await self.guides.update_provisional(project_id, provisional_guide)
 
-            # Step 2: Apply guide to remaining pages
+            # Step 2: Apply guide to remaining pages (all pages except the guide page)
+            validation_pages = [p for p in pages if p.id != guide_page.id]
+
             logger.info(
                 "pipeline_step",
                 project_id=project_id_str,
                 step="guide_applier",
-                pages=len(pages) - 1,
+                pages=len(validation_pages),
+                guide_page_order=guide_page.order,
             )
 
             subsequent_pages = []
-            for page in pages[1:]:
+            for page in validation_pages:
                 page_bytes = await self.file_storage.read_image_bytes(page.file_path)
                 subsequent_pages.append((page.order, page_bytes))
 
@@ -284,6 +495,27 @@ class PipelineOrchestrator:
                 for v in applier_result.page_validations
                 if v.success
             ]
+
+            # Also include self-validation of the guide page for completeness
+            guide_page_validation = await self.guide_applier.validate_page(
+                image_bytes=guide_page_bytes,
+                provisional_guide=provisional_guide,
+                page_order=guide_page.order,
+                project_id=project_id_str,
+            )
+            if guide_page_validation.success:
+                validation_reports.append(
+                    (guide_page_validation.page_order, guide_page_validation.validation_report)
+                )
+
+            logger.info(
+                "validation_pages_summary",
+                project_id=project_id_str,
+                total_pages=len(pages),
+                validation_pages_count=len(validation_pages),
+                successful_validations=len(validation_reports),
+                guide_page_included=guide_page_validation.success,
+            )
 
             if not validation_reports:
                 await self.projects.update_status(project_id, ProjectStatus.FAILED)
