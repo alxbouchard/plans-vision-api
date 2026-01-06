@@ -11,8 +11,8 @@ from fastapi.responses import JSONResponse
 from src.config import get_settings
 from src.logging import configure_logging, get_logger
 from src.storage import init_database
-from src.api.routes import projects_router, pages_router, analysis_router
-from src.api.routes_v2 import extraction_router, query_router
+from src.api.routes import projects_router, pages_router, analysis_router, pdf_router
+from src.api.routes_v2 import extraction_router, query_router, objects_router
 from src.api.routes_v3 import router as v3_router
 from src.api.middleware import (
     APIKeyAuthMiddleware,
@@ -125,11 +125,13 @@ def create_app() -> FastAPI:
     # Include routers
     app.include_router(projects_router)
     app.include_router(pages_router)
+    app.include_router(pdf_router)
     app.include_router(analysis_router)
 
     # V2 routers (extraction and query)
     app.include_router(extraction_router)
     app.include_router(query_router)
+    app.include_router(objects_router)
 
     # V3 routers (PDF master, mapping, render)
     app.include_router(v3_router)

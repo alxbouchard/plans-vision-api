@@ -13,6 +13,7 @@ from typing import Optional
 from uuid import UUID, uuid4
 
 from PIL import Image
+import fitz  # PyMuPDF
 import io
 
 from src.config import get_settings
@@ -28,6 +29,14 @@ class ImageMetadata:
     height: int
     sha256: str
     byte_size: int
+
+
+@dataclass
+class PDFPageResult:
+    """Result of extracting a single page from PDF."""
+    page_index: int
+    file_path: str  # Relative path to saved PNG
+    metadata: ImageMetadata
 
 
 class FileStorageError(Exception):
@@ -188,6 +197,163 @@ class FileStorage:
 
         # Return relative path and metadata
         return str(file_path.relative_to(self.base_dir)), metadata
+
+    async def save_pdf_and_extract_pages(
+        self,
+        project_id: UUID,
+        content: bytes,
+        content_type: str,
+        tenant_id: Optional[UUID] = None,
+        dpi: int = 150,
+    ) -> tuple[str, list[PDFPageResult]]:
+        """
+        Save a PDF and extract all pages as PNG images.
+
+        Args:
+            project_id: The project ID
+            content: Raw PDF bytes
+            content_type: MIME type (should be application/pdf)
+            tenant_id: Optional tenant ID for scoped storage
+            dpi: Resolution for PNG rendering (default 150)
+
+        Returns:
+            Tuple of (relative path to saved PDF, list of extracted page results)
+
+        Raises:
+            FileStorageError: If validation or extraction fails
+        """
+        tid = tenant_id or self.tenant_id
+
+        # Validate MIME type
+        if content_type != "application/pdf":
+            raise FileStorageError(
+                f"Invalid file type: {content_type}. Only PDF files are allowed.",
+                error_code="INVALID_PDF_FORMAT",
+            )
+
+        # Validate file size (use same limit as images for now)
+        byte_size = len(content)
+        if byte_size > self.max_file_size * 10:  # Allow 10x larger for PDFs
+            raise FileStorageError(
+                f"File too large: {byte_size} bytes. Maximum is {self.max_file_size * 10} bytes.",
+                error_code="FILE_TOO_LARGE",
+            )
+
+        # Validate it's actually a valid PDF and get page count
+        try:
+            doc = fitz.open(stream=content, filetype="pdf")
+            page_count = len(doc)
+            if page_count == 0:
+                raise FileStorageError(
+                    "PDF has no pages",
+                    error_code="INVALID_PDF_FORMAT",
+                )
+        except FileStorageError:
+            raise
+        except Exception as e:
+            raise FileStorageError(
+                f"Invalid PDF file: {e}",
+                error_code="INVALID_PDF_FORMAT",
+            )
+
+        project_dir = self._get_project_dir(project_id, tid)
+
+        # Save the PDF file
+        pdf_filename = "source.pdf"
+        pdf_path = project_dir / pdf_filename
+        try:
+            async with aiofiles.open(pdf_path, "wb") as f:
+                await f.write(content)
+        except Exception as e:
+            logger.error(
+                "pdf_save_failed",
+                project_id=str(project_id),
+                error=str(e),
+            )
+            raise FileStorageError(
+                f"Failed to save PDF: {e}",
+                error_code="STORAGE_FAILURE",
+            )
+
+        pdf_relative_path = str(pdf_path.relative_to(self.base_dir))
+
+        logger.info(
+            "pdf_saved",
+            project_id=str(project_id),
+            page_count=page_count,
+            byte_size=byte_size,
+            pdf_path=pdf_relative_path,
+        )
+
+        # Extract pages as PNG
+        page_results: list[PDFPageResult] = []
+        zoom = dpi / 72.0  # PDF default is 72 DPI
+        matrix = fitz.Matrix(zoom, zoom)
+
+        for page_index in range(page_count):
+            page = doc[page_index]
+            pix = page.get_pixmap(matrix=matrix, alpha=False)
+
+            # Convert to PNG bytes
+            png_bytes = pix.tobytes("png")
+
+            # Compute metadata
+            width, height = pix.width, pix.height
+            sha256_hash = hashlib.sha256(png_bytes).hexdigest()
+            png_byte_size = len(png_bytes)
+
+            # Check dimensions
+            if width > self.max_dimension or height > self.max_dimension:
+                logger.warning(
+                    "pdf_page_dimension_exceeded",
+                    project_id=str(project_id),
+                    page_index=page_index,
+                    width=width,
+                    height=height,
+                    max_dimension=self.max_dimension,
+                )
+                # Continue anyway - don't fail the whole upload
+
+            # Save the PNG
+            file_id = uuid4()
+            png_filename = f"{file_id}.png"
+            png_path = project_dir / png_filename
+
+            async with aiofiles.open(png_path, "wb") as f:
+                await f.write(png_bytes)
+
+            png_relative_path = str(png_path.relative_to(self.base_dir))
+
+            metadata = ImageMetadata(
+                width=width,
+                height=height,
+                sha256=sha256_hash,
+                byte_size=png_byte_size,
+            )
+
+            page_results.append(PDFPageResult(
+                page_index=page_index,
+                file_path=png_relative_path,
+                metadata=metadata,
+            ))
+
+            logger.debug(
+                "pdf_page_extracted",
+                project_id=str(project_id),
+                page_index=page_index,
+                width=width,
+                height=height,
+            )
+
+        doc.close()
+
+        logger.info(
+            "pdf_extraction_complete",
+            project_id=str(project_id),
+            pages_extracted=len(page_results),
+        )
+
+        return pdf_relative_path, page_results
 
     async def get_image_path(self, relative_path: str) -> Path:
         """Get the absolute path to a stored image."""

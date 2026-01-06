@@ -9,7 +9,7 @@ from typing import Optional, Union
 import json
 
 from src.logging import get_logger
-from src.storage import get_db, PageRepository, FileStorage, VisualGuideRepository
+from src.storage import get_db, PageRepository, FileStorage, VisualGuideRepository, ExtractedRoomRepository, ExtractedDoorRepository
 from src.models.entities import (
     ExtractionStatus,
     ExtractionJob,
@@ -30,6 +30,10 @@ from .door_extractor import DoorExtractor
 from .schedule_extractor import ScheduleExtractor
 from .text_block_detector import TextBlockDetector
 from .spatial_room_labeler import SpatialRoomLabeler
+from .tokens import get_tokens_for_page, TextToken
+from .token_block_adapter import TokenBlockAdapter
+from .id_generator import generate_room_id
+from src.models.entities import Geometry
 
 logger = get_logger(__name__)
 
@@ -262,40 +266,103 @@ async def _run_extract_objects(
                     # Extract rooms and doors on plan pages (Gate B, E)
                     objects = []
                     settings = get_settings()
+                    rooms = []
+                    tokens_first_used = False
 
-                    # Extract doors FIRST (needed for Phase 3.3 disambiguation)
-                    doors = await door_extractor.extract(page.id, image_bytes)
-                    objects.extend(doors)
+                    # Phase 3.5: Tokens-first room extraction
+                    # If page has PDF source, use PyMuPDF tokens + guide payloads
+                    pdf_path = getattr(page, 'source_pdf_path', None)
+                    page_index = getattr(page, 'source_pdf_page_index', 0) or 0
 
-                    # Extract rooms (legacy extractor)
-                    rooms = await room_extractor.extract(page.id, image_bytes)
+                    if pdf_path and guide_payloads:
+                        from pathlib import Path
+                        pdf_path_obj = Path(pdf_path)
+
+                        if pdf_path_obj.exists():
+                            # Get tokens from PDF
+                            tokens = await get_tokens_for_page(
+                                page_id=page.id,
+                                pdf_path=pdf_path_obj,
+                                page_number=page_index,
+                                use_vision=False,  # No vision fallback - tokens-first only
+                            )
+
+                            if tokens:
+                                logger.info(
+                                    "token_provider_used",
+                                    page_id=str(page.id),
+                                    source="pymupdf",
+                                    tokens_count=len(tokens),
+                                )
+
+                                # Apply guide payloads to create room blocks
+                                adapter = TokenBlockAdapter(payloads=guide_payloads)
+                                blocks = adapter.create_blocks(tokens, page.id)
+
+                                # Convert blocks to ExtractedRoom
+                                rooms = _blocks_to_rooms(
+                                    blocks=blocks,
+                                    page_id=page.id,
+                                    policy=policy,
+                                    adapter_metrics=adapter.last_metrics,
+                                    guide_payloads=guide_payloads,
+                                )
+                                tokens_first_used = True
+
+                                logger.info(
+                                    "tokens_first_rooms_extracted",
+                                    page_id=str(page.id),
+                                    rooms_count=len(rooms),
+                                    metrics=adapter.last_metrics.to_dict() if adapter.last_metrics else {},
+                                )
+                            else:
+                                logger.info(
+                                    "token_provider_fallback",
+                                    page_id=str(page.id),
+                                    reason="no_tokens_from_pdf",
+                                )
+                        else:
+                            logger.warning(
+                                "token_provider_skip",
+                                page_id=str(page.id),
+                                reason="pdf_not_found",
+                                pdf_path=pdf_path,
+                            )
+
+                    # Fallback to Vision room extractor if tokens-first didn't produce rooms
+                    if not tokens_first_used:
+                        logger.info(
+                            "room_extractor_vision_fallback",
+                            page_id=str(page.id),
+                            reason="no_pdf_source" if not pdf_path else "tokens_first_failed",
+                        )
+                        rooms = await room_extractor.extract(page.id, image_bytes)
+
                     objects.extend(rooms)
 
-                    # Phase 3.3: Spatial room labeling (if enabled)
-                    # Runs after doors so we can use door context for disambiguation
-                    # Uses payloads loaded from the stored guide
-                    spatial_rooms = await _run_phase3_3_spatial_labeling(
-                        page_id=page.id,
-                        image_bytes=image_bytes,
-                        doors=doors,
-                        settings=settings,
-                        policy=policy,
-                        payloads=guide_payloads,
-                    )
-                    if spatial_rooms:
-                        objects.extend(spatial_rooms)
+                    # Extract doors (independent of rooms - can timeout without affecting rooms)
+                    try:
+                        doors = await door_extractor.extract(page.id, image_bytes)
+                        objects.extend(doors)
+                    except Exception as e:
+                        logger.warning(
+                            "door_extraction_timeout",
+                            page_id=str(page.id),
+                            error=str(e),
+                        )
+                        doors = []
 
                     _extracted_objects[page.id] = objects
 
-                    # Count rooms from both extractors
-                    total_rooms = len(rooms) + len(spatial_rooms)
+                    # P0: Persist rooms and doors to database
+                    await _persist_extracted_objects(page.id, rooms, doors)
 
                     logger.info(
                         "plan_page_extracted",
                         page_id=str(page.id),
-                        room_count=total_rooms,
+                        room_count=len(rooms),
                         door_count=len(doors),
-                        spatial_rooms=len(spatial_rooms),
+                        tokens_first_used=tokens_first_used,
                         policy=policy.value,
                     )
 
@@ -323,6 +390,38 @@ async def _run_extract_objects(
                 _extracted_objects[page.id] = []
 
     _update_step_status(job, "extract_objects", ExtractionStatus.COMPLETED)
+
+
+async def _persist_extracted_objects(
+    page_id: UUID,
+    rooms: list[ExtractedRoom],
+    doors: list[ExtractedDoor],
+) -> None:
+    """Persist extracted rooms and doors to database (P0 - Persistence).
+
+    This ensures data survives server restarts.
+    """
+    try:
+        async with get_db() as db:
+            room_repo = ExtractedRoomRepository(db)
+            door_repo = ExtractedDoorRepository(db)
+
+            rooms_saved = await room_repo.save_rooms(page_id, rooms)
+            doors_saved = await door_repo.save_doors(page_id, doors)
+
+            logger.info(
+                "objects_persisted",
+                page_id=str(page_id),
+                rooms_saved=rooms_saved,
+                doors_saved=doors_saved,
+            )
+    except Exception as e:
+        logger.error(
+            "objects_persist_failed",
+            page_id=str(page_id),
+            error=str(e),
+        )
+        # Don't raise - extraction can continue with in-memory storage
 
 
 async def _run_build_index(project_id: UUID, job: ExtractionJob) -> None:
@@ -380,6 +479,149 @@ async def _run_build_index(project_id: UUID, job: ExtractionJob) -> None:
     )
 
     _update_step_status(job, "build_index", ExtractionStatus.COMPLETED)
+
+
+def _blocks_to_rooms(
+    blocks: list,
+    page_id: UUID,
+    policy: ExtractionPolicy,
+    adapter_metrics=None,
+    guide_payloads: list = None,
+) -> list[ExtractedRoom]:
+    """Convert SyntheticTextBlocks from TokenBlockAdapter to ExtractedRoom objects.
+
+    Args:
+        blocks: List of SyntheticTextBlock from TokenBlockAdapter
+        page_id: Page identifier
+        policy: Extraction policy
+        adapter_metrics: Metrics from adapter for confidence adjustment
+        guide_payloads: List of RulePayload from the guide
+
+    Returns:
+        List of ExtractedRoom objects
+    """
+    # Check if pairing payload is present in the guide
+    pairing_payload_present = False
+    if guide_payloads:
+        for payload in guide_payloads:
+            kind_value = getattr(payload.kind, 'value', str(payload.kind))
+            if kind_value == "pairing":
+                pairing_payload_present = True
+                break
+
+    rooms = []
+    rooms_dropped_missing_number = 0
+
+    for block in blocks:
+        try:
+            room_name = block.room_name_token
+            room_number = block.room_number_token
+            bbox = block.bbox
+
+            # Skip blocks without room_name (shouldn't happen but defensive)
+            if not room_name:
+                continue
+
+            # If pairing payload is present in guide, require room_number
+            # This is guide-driven: the presence of pairing payload means
+            # rooms are defined as name+number pairs in this project
+            if pairing_payload_present and not room_number:
+                rooms_dropped_missing_number += 1
+                logger.debug(
+                    "room_dropped_missing_number",
+                    page_id=str(page_id),
+                    room_name=room_name,
+                    reason="pairing_payload_present_but_no_room_number",
+                )
+                continue
+
+            # Create label
+            if room_number:
+                label = f"{room_name} {room_number}"
+            else:
+                label = room_name
+
+            # Generate deterministic ID
+            bbox_tuple = (bbox[0], bbox[1], bbox[0] + bbox[2], bbox[1] + bbox[3])
+            object_id = generate_room_id(
+                page_id=page_id,
+                label=label,
+                bbox=bbox_tuple,
+                room_number=room_number,
+            )
+
+            # Geometry
+            geometry = Geometry(
+                type="bbox",
+                bbox=bbox,
+            )
+
+            # Confidence: use block confidence, adjust for pairing
+            confidence = block.confidence
+            if room_number:
+                # Paired blocks get higher confidence
+                confidence = min(confidence + 0.1, 1.0)
+
+            # Confidence level
+            if confidence >= 0.8:
+                confidence_level = ConfidenceLevel.HIGH
+            elif confidence >= 0.5:
+                confidence_level = ConfidenceLevel.MEDIUM
+            else:
+                confidence_level = ConfidenceLevel.LOW
+
+            # Sources
+            sources = ["tokens_first", "pymupdf"]
+            if policy == ExtractionPolicy.RELAXED:
+                sources.append("extraction_policy:relaxed")
+
+            # Create room
+            room = ExtractedRoom(
+                id=object_id,
+                page_id=page_id,
+                label=label,
+                geometry=geometry,
+                confidence=confidence,
+                confidence_level=confidence_level,
+                sources=sources,
+                room_number=room_number,
+                room_name=room_name,
+            )
+            rooms.append(room)
+
+            logger.debug(
+                "tokens_first_room_created",
+                page_id=str(page_id),
+                object_id=object_id,
+                room_name=room_name,
+                room_number=room_number,
+                confidence=confidence,
+            )
+
+        except Exception as e:
+            logger.warning(
+                "block_to_room_failed",
+                page_id=str(page_id),
+                error=str(e),
+            )
+            continue
+
+    # Log final metrics (mandatory for Phase 3.7 validation)
+    rooms_with_number = sum(1 for r in rooms if r.room_number)
+    rooms_emitted_final = len(rooms)
+    ratio = rooms_with_number / rooms_emitted_final if rooms_emitted_final > 0 else 0.0
+
+    logger.info(
+        "blocks_to_rooms_final",
+        page_id=str(page_id),
+        pairing_payload_present=pairing_payload_present,
+        rooms_dropped_missing_number=rooms_dropped_missing_number,
+        rooms_emitted_final=rooms_emitted_final,
+        rooms_with_number=rooms_with_number,
+        rooms_with_number_ratio=round(ratio, 3),
+    )
+
+    return rooms
 
 
 def _update_step_status(
